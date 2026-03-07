@@ -130,6 +130,57 @@ class Sheep:
         # pygame.draw.circle(screen, (220, 255, 220), self.pos, self.base_radius, 1)
 
 
+def resolve_sheep_collisions(flock: list[Sheep]) -> None:
+    for i in range(len(flock)):
+        a = flock[i]
+        for j in range(i + 1, len(flock)):
+            b = flock[j]
+
+            delta = b.pos - a.pos
+            min_dist = a.base_radius + b.base_radius
+            dist_sq = delta.length_squared()
+
+            if dist_sq >= min_dist * min_dist:
+                continue
+
+            if dist_sq < 1e-12:
+                # Rare exact overlap fallback.
+                angle = random.uniform(0.0, math.tau)
+                normal = Vector2(math.cos(angle), math.sin(angle))
+                dist = 0.0
+            else:
+                dist = math.sqrt(dist_sq)
+                normal = delta / dist
+
+            # Positional correction to avoid sticky overlap.
+            overlap = min_dist - dist
+            if overlap > 0.0:
+                correction = normal * (overlap * 0.5)
+                a.pos -= correction
+                b.pos += correction
+
+                a.pos, a.vel = bounce_in_bounds(a.pos, a.vel, a.base_radius, WIDTH, HEIGHT)
+                b.pos, b.vel = bounce_in_bounds(b.pos, b.vel, b.base_radius, WIDTH, HEIGHT)
+
+            # Elastic equal-mass collision: swap normal velocity components.
+            va_n = a.vel.dot(normal)
+            vb_n = b.vel.dot(normal)
+
+            # Apply only if moving toward each other along collision normal.
+            if va_n - vb_n > 0.0:
+                a.vel += (vb_n - va_n) * normal
+                b.vel += (va_n - vb_n) * normal
+
+                # Keep every sheep at constant speed.
+                if a.vel.length_squared() > 1e-6:
+                    a.vel = a.vel.normalize() * a.speed
+                    a.display_angle = math.degrees(math.atan2(-a.vel.x, a.vel.y))
+
+                if b.vel.length_squared() > 1e-6:
+                    b.vel = b.vel.normalize() * b.speed
+                    b.display_angle = math.degrees(math.atan2(-b.vel.x, b.vel.y))
+
+
 # ------------------------------------------------------------
 # Main loop
 # ------------------------------------------------------------
@@ -157,6 +208,8 @@ def main() -> None:
 
         for sheep in flock:
             sheep.update(dt)
+
+        resolve_sheep_collisions(flock)
 
         screen.fill(BG_COLOR)
 
