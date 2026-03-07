@@ -22,8 +22,9 @@ ANIM_FRAME_COUNT = 120
 ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 
-NUM_SHEEP = 8
-NUM_WOLVES = 2
+NUM_SHEEP = 25
+NUM_WOLVES = 4
+MAX_SHEEP = 160
 
 SHEEP_SCALE = 64
 WOLF_SCALE = 64
@@ -34,6 +35,7 @@ WOLF_SPEED = 200.0
 TURN_DURATION_SEC = 0.5
 STEP_SPEED_MULT_EXPAND = 0.8
 STEP_SPEED_MULT_COMPRESS = 2 - STEP_SPEED_MULT_EXPAND
+SHEEP_REPRODUCTION_COOLDOWN_SEC = 5.0
 
 
 # ------------------------------------------------------------
@@ -75,6 +77,50 @@ def load_animation_frames(directory: Path, prefix: str, size: int, frame_count: 
             raise FileNotFoundError(f"Missing animation frame: {frame_path}")
         frames.append(load_sprite(frame_path, size))
     return frames
+
+
+def elastic_collision_response(a: "MovingAgent", b: "MovingAgent", normal: Vector2, dist: float, min_dist: float) -> None:
+    # Positional correction to avoid sticky overlap.
+    overlap = min_dist - dist
+    if overlap > 0.0:
+        correction = normal * (overlap * 0.5)
+        a.pos -= correction
+        b.pos += correction
+
+        a.pos, a.vel = bounce_in_bounds(a.pos, a.vel, a.base_radius, WIDTH, HEIGHT)
+        b.pos, b.vel = bounce_in_bounds(b.pos, b.vel, b.base_radius, WIDTH, HEIGHT)
+
+    # Elastic equal-mass collision: swap normal velocity components.
+    va_n = a.vel.dot(normal)
+    vb_n = b.vel.dot(normal)
+
+    # Apply only if moving toward each other along collision normal.
+    if va_n - vb_n > 0.0:
+        a.vel += (vb_n - va_n) * normal
+        b.vel += (va_n - vb_n) * normal
+
+        # Keep every agent at constant base speed.
+        if a.vel.length_squared() > 1e-6:
+            a.vel = a.vel.normalize() * a.speed
+            a.retarget_orientation()
+
+        if b.vel.length_squared() > 1e-6:
+            b.vel = b.vel.normalize() * b.speed
+            b.retarget_orientation()
+
+
+def spawn_sheep_near(par_a: "Sheep", par_b: "Sheep", sheep_animation_frames: list[pygame.Surface]) -> "Sheep":
+    child = Sheep(sheep_animation_frames, initial_reproduction_cooldown=SHEEP_REPRODUCTION_COOLDOWN_SEC)
+
+    midpoint = (par_a.pos + par_b.pos) * 0.5
+    offset = Vector2(random.uniform(-1.0, 1.0), random.uniform(-1.0, 1.0))
+    if offset.length_squared() < 1e-6:
+        offset = Vector2(1.0, 0.0)
+    offset = offset.normalize() * random.uniform(0.0, par_a.base_radius)
+
+    child.pos = midpoint + offset
+    child.pos, child.vel = bounce_in_bounds(child.pos, child.vel, child.base_radius, WIDTH, HEIGHT)
+    return child
 
 
 # ------------------------------------------------------------
@@ -191,8 +237,17 @@ class MovingAgent:
 
 
 class Sheep(MovingAgent):
-    def __init__(self, animation_frames: list[pygame.Surface]):
+    def __init__(self, animation_frames: list[pygame.Surface], initial_reproduction_cooldown: float = 0.0):
         super().__init__(animation_frames, speed=SHEEP_SPEED, scale=SHEEP_SCALE)
+        self.reproduction_cooldown = max(0.0, initial_reproduction_cooldown)
+
+    def can_reproduce(self) -> bool:
+        return self.reproduction_cooldown <= 0.0
+
+    def update(self, dt: float) -> None:
+        super().update(dt)
+        if self.reproduction_cooldown > 0.0:
+            self.reproduction_cooldown = max(0.0, self.reproduction_cooldown - dt)
 
 
 class Wolf(MovingAgent):
@@ -200,17 +255,34 @@ class Wolf(MovingAgent):
         super().__init__(animation_frames, speed=WOLF_SPEED, scale=WOLF_SCALE)
 
 
-def resolve_collisions(agents: list[MovingAgent]) -> None:
-    for i in range(len(agents)):
-        a = agents[i]
-        for j in range(i + 1, len(agents)):
-            b = agents[j]
+def resolve_interactions(sheep_flock: list[Sheep], wolf_pack: list[Wolf], sheep_animation_frames: list[pygame.Surface]) -> None:
+    all_agents: list[MovingAgent] = [*sheep_flock, *wolf_pack]
+    sheep_to_remove: set[Sheep] = set()
+    newborn_sheep: list[Sheep] = []
+
+    for i in range(len(all_agents)):
+        a = all_agents[i]
+        if isinstance(a, Sheep) and a in sheep_to_remove:
+            continue
+
+        for j in range(i + 1, len(all_agents)):
+            b = all_agents[j]
+            if isinstance(b, Sheep) and b in sheep_to_remove:
+                continue
 
             delta = b.pos - a.pos
             min_dist = a.base_radius + b.base_radius
             dist_sq = delta.length_squared()
 
             if dist_sq >= min_dist * min_dist:
+                continue
+
+            if isinstance(a, Sheep) and isinstance(b, Wolf):
+                sheep_to_remove.add(a)
+                continue
+
+            if isinstance(a, Wolf) and isinstance(b, Sheep):
+                sheep_to_remove.add(b)
                 continue
 
             if dist_sq < 1e-12:
@@ -222,33 +294,17 @@ def resolve_collisions(agents: list[MovingAgent]) -> None:
                 dist = math.sqrt(dist_sq)
                 normal = delta / dist
 
-            # Positional correction to avoid sticky overlap.
-            overlap = min_dist - dist
-            if overlap > 0.0:
-                correction = normal * (overlap * 0.5)
-                a.pos -= correction
-                b.pos += correction
+            if isinstance(a, Sheep) and isinstance(b, Sheep) and a.can_reproduce() and b.can_reproduce():
+                newborn_sheep.append(spawn_sheep_near(a, b, sheep_animation_frames))
 
-                a.pos, a.vel = bounce_in_bounds(a.pos, a.vel, a.base_radius, WIDTH, HEIGHT)
-                b.pos, b.vel = bounce_in_bounds(b.pos, b.vel, b.base_radius, WIDTH, HEIGHT)
+            elastic_collision_response(a, b, normal, dist, min_dist)
 
-            # Elastic equal-mass collision: swap normal velocity components.
-            va_n = a.vel.dot(normal)
-            vb_n = b.vel.dot(normal)
+    if sheep_to_remove:
+        sheep_flock[:] = [s for s in sheep_flock if s not in sheep_to_remove]
 
-            # Apply only if moving toward each other along collision normal.
-            if va_n - vb_n > 0.0:
-                a.vel += (vb_n - va_n) * normal
-                b.vel += (va_n - vb_n) * normal
-
-                # Keep every agent at constant base speed.
-                if a.vel.length_squared() > 1e-6:
-                    a.vel = a.vel.normalize() * a.speed
-                    a.retarget_orientation()
-
-                if b.vel.length_squared() > 1e-6:
-                    b.vel = b.vel.normalize() * b.speed
-                    b.retarget_orientation()
+    if newborn_sheep and len(sheep_flock) < MAX_SHEEP:
+        slots_left = MAX_SHEEP - len(sheep_flock)
+        sheep_flock.extend(newborn_sheep[:slots_left])
 
 
 # ------------------------------------------------------------
@@ -276,7 +332,6 @@ def main() -> None:
 
     sheep_flock = [Sheep(sheep_animation_frames) for _ in range(NUM_SHEEP)]
     wolf_pack = [Wolf(wolf_animation_frames) for _ in range(NUM_WOLVES)]
-    all_agents: list[MovingAgent] = [*sheep_flock, *wolf_pack]
 
     running = True
     while running:
@@ -288,10 +343,14 @@ def main() -> None:
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
 
+        all_agents: list[MovingAgent] = [*sheep_flock, *wolf_pack]
+
         for agent in all_agents:
             agent.update(dt)
 
-        resolve_collisions(all_agents)
+        resolve_interactions(sheep_flock, wolf_pack, sheep_animation_frames)
+
+        all_agents = [*sheep_flock, *wolf_pack]
 
         screen.fill(BG_COLOR)
 
@@ -312,3 +371,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
