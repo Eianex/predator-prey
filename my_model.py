@@ -20,6 +20,7 @@ SHEEP_RUN_PATH = ASSET_DIR / "sheep_long.png"
 NUM_SHEEP = 10
 SHEEP_SCALE = 54  # final rendered width/height in pixels
 SHEEP_SPEED = 95.0
+WALK_CYCLE_HZ = 3.0
 
 
 # ------------------------------------------------------------
@@ -76,7 +77,7 @@ class Sheep:
 
         # Fixed collision radius based on the round/original sheep body,
         # even when the elongated sprite is shown while moving.
-        self.animation_phase = random.uniform(0.0, math.tau)
+        self.animation_phase = random.uniform(0.0, 1.0)
         self.base_radius = SHEEP_SCALE * 0.38
 
     def update(self, dt: float) -> None:
@@ -94,14 +95,14 @@ class Sheep:
             self.vel = self.vel.normalize() * self.speed
             self.display_angle = math.degrees(math.atan2(-self.vel.x, self.vel.y))
 
-        self.animation_phase += self.speed * 0.06 * dt
+        speed_ratio = clamp(self.vel.length() / self.speed, 0.0, 1.0)
+        self.animation_phase = (self.animation_phase + WALK_CYCLE_HZ * speed_ratio * dt) % 1.0
 
     def draw(self, screen: pygame.Surface) -> None:
-        speed_ratio = clamp(self.vel.length() / self.speed, 0.0, 1.0)
-
-        # Switch to elongated sprite when moving faster.
-        if speed_ratio > 0.42:
-            base_sprite = self.run_sprite
+        is_moving = self.vel.length_squared() > 1e-6
+        if is_moving:
+            # Alternate between short and long sheep shape while walking.
+            base_sprite = self.idle_sprite if self.animation_phase < 0.5 else self.run_sprite
         else:
             base_sprite = self.idle_sprite
 
