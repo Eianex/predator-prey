@@ -23,6 +23,8 @@ NUM_SHEEP = 10
 SHEEP_SCALE = 72
 SHEEP_SPEED = 95.0
 TURN_DURATION_SEC = 0.5
+STEP_SPEED_MULT_EXPAND = 0.7
+STEP_SPEED_MULT_COMPRESS = 2-STEP_SPEED_MULT_EXPAND
 
 
 # ------------------------------------------------------------
@@ -125,8 +127,25 @@ class Sheep:
         delta = angle_diff_deg(self.turn_start_angle, self.target_angle)
         self.display_angle = self.turn_start_angle + delta * progress
 
+    def step_speed_multiplier(self) -> float:
+        frame_count = len(self.animation_frames)
+        if frame_count <= 0:
+            return 1.0
+
+        cycle_phase = (self.anim_frame_cursor % frame_count) / frame_count
+        if cycle_phase < 0.5:
+            return STEP_SPEED_MULT_EXPAND
+        return STEP_SPEED_MULT_COMPRESS
+
     def update(self, dt: float) -> None:
-        self.pos += self.vel * dt
+        # Keep total direction speed constant, then scale displacement by gait phase.
+        if self.vel.length_squared() > 1e-6:
+            self.vel = self.vel.normalize() * self.speed
+            step_speed_mult = self.step_speed_multiplier()
+        else:
+            step_speed_mult = 0.0
+
+        self.pos += self.vel * dt * step_speed_mult
         self.pos, self.vel = bounce_in_bounds(
             self.pos,
             self.vel,
@@ -135,14 +154,10 @@ class Sheep:
             HEIGHT,
         )
 
-        # Keep total speed constant.
-        if self.vel.length_squared() > 1e-6:
-            self.vel = self.vel.normalize() * self.speed
-
         self.retarget_orientation()
         self.update_orientation(dt)
 
-        # Advance animation at authored rate (60 fps) while moving.
+        # Advance animation at authored rate while moving.
         if self.vel.length_squared() > 1e-6:
             self.anim_frame_cursor = (self.anim_frame_cursor + SHEEP_ANIM_FPS * dt) % len(self.animation_frames)
 
@@ -276,4 +291,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
