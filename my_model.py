@@ -21,6 +21,7 @@ NUM_SHEEP = 10
 SHEEP_SCALE = 54  # final rendered width/height in pixels
 SHEEP_SPEED = 95.0
 WALK_CYCLE_HZ = 3.0
+TURN_DURATION_SEC = 0.5
 
 
 # ------------------------------------------------------------
@@ -28,6 +29,11 @@ WALK_CYCLE_HZ = 3.0
 # ------------------------------------------------------------
 def clamp(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(max_value, value))
+
+
+def angle_diff_deg(current: float, target: float) -> float:
+    """Smallest signed angular difference from current to target."""
+    return (target - current + 180.0) % 360.0 - 180.0
 
 
 def bounce_in_bounds(pos: Vector2, vel: Vector2, radius: float, width: int, height: int) -> tuple[Vector2, Vector2]:
@@ -74,11 +80,39 @@ class Sheep:
         # Sprite orientation in degrees.
         # Assumes the animal faces "up" in the sprite image.
         self.display_angle = math.degrees(math.atan2(-self.vel.x, self.vel.y))
+        self.target_angle = self.display_angle
+        self.turn_start_angle = self.display_angle
+        self.turn_elapsed = TURN_DURATION_SEC
 
         # Fixed collision radius based on the round/original sheep body,
         # even when the elongated sprite is shown while moving.
         self.animation_phase = random.uniform(0.0, 1.0)
         self.base_radius = SHEEP_SCALE * 0.38
+
+    def retarget_orientation(self) -> None:
+        if self.vel.length_squared() < 1e-6:
+            return
+
+        new_target = math.degrees(math.atan2(-self.vel.x, self.vel.y))
+        if abs(angle_diff_deg(self.target_angle, new_target)) > 1e-3:
+            self.turn_start_angle = self.display_angle
+            self.target_angle = new_target
+            self.turn_elapsed = 0.0
+
+    def update_orientation(self, dt: float) -> None:
+        if TURN_DURATION_SEC <= 1e-6:
+            self.display_angle = self.target_angle
+            self.turn_elapsed = TURN_DURATION_SEC
+            return
+
+        if self.turn_elapsed >= TURN_DURATION_SEC:
+            self.display_angle = self.target_angle
+            return
+
+        self.turn_elapsed = min(TURN_DURATION_SEC, self.turn_elapsed + dt)
+        progress = self.turn_elapsed / TURN_DURATION_SEC
+        delta = angle_diff_deg(self.turn_start_angle, self.target_angle)
+        self.display_angle = self.turn_start_angle + delta * progress
 
     def update(self, dt: float) -> None:
         self.pos += self.vel * dt
@@ -90,10 +124,12 @@ class Sheep:
             HEIGHT,
         )
 
-        # Keep total speed constant and align sprite to velocity.
+        # Keep total speed constant.
         if self.vel.length_squared() > 1e-6:
             self.vel = self.vel.normalize() * self.speed
-            self.display_angle = math.degrees(math.atan2(-self.vel.x, self.vel.y))
+
+        self.retarget_orientation()
+        self.update_orientation(dt)
 
         speed_ratio = clamp(self.vel.length() / self.speed, 0.0, 1.0)
         self.animation_phase = (self.animation_phase + WALK_CYCLE_HZ * speed_ratio * dt) % 1.0
@@ -175,11 +211,11 @@ def resolve_sheep_collisions(flock: list[Sheep]) -> None:
                 # Keep every sheep at constant speed.
                 if a.vel.length_squared() > 1e-6:
                     a.vel = a.vel.normalize() * a.speed
-                    a.display_angle = math.degrees(math.atan2(-a.vel.x, a.vel.y))
+                    a.retarget_orientation()
 
                 if b.vel.length_squared() > 1e-6:
                     b.vel = b.vel.normalize() * b.speed
-                    b.display_angle = math.degrees(math.atan2(-b.vel.x, b.vel.y))
+                    b.retarget_orientation()
 
 
 # ------------------------------------------------------------
