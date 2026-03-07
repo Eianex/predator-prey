@@ -14,13 +14,14 @@ FPS = 60
 BG_COLOR = (78, 145, 68)
 
 ASSET_DIR = Path("img")
-SHEEP_IDLE_PATH = ASSET_DIR / "sheep.png"
-SHEEP_RUN_PATH = ASSET_DIR / "sheep_long.png"
+SHEEP_ANIM_DIR = ASSET_DIR / "animation"
+SHEEP_ANIM_FRAME_COUNT = 120
+SHEEP_ANIM_CYCLE_SEC = 0.5
+SHEEP_ANIM_FPS = SHEEP_ANIM_FRAME_COUNT / SHEEP_ANIM_CYCLE_SEC
 
 NUM_SHEEP = 10
-SHEEP_SCALE = 54  # final rendered width/height in pixels
+SHEEP_SCALE = 72
 SHEEP_SPEED = 95.0
-WALK_CYCLE_HZ = 3.0
 TURN_DURATION_SEC = 0.5
 
 
@@ -59,13 +60,22 @@ def load_sprite(path: Path, size: int) -> pygame.Surface:
     return pygame.transform.smoothscale(surface, (size, size))
 
 
+def load_sheep_animation_frames(directory: Path, size: int, frame_count: int) -> list[pygame.Surface]:
+    frames: list[pygame.Surface] = []
+    for i in range(frame_count):
+        frame_path = directory / f"sheep{i:04d}.png"
+        if not frame_path.exists():
+            raise FileNotFoundError(f"Missing sheep animation frame: {frame_path}")
+        frames.append(load_sprite(frame_path, size))
+    return frames
+
+
 # ------------------------------------------------------------
 # Sheep agent
 # ------------------------------------------------------------
 class Sheep:
-    def __init__(self, idle_sprite: pygame.Surface, run_sprite: pygame.Surface):
-        self.idle_sprite = idle_sprite
-        self.run_sprite = run_sprite
+    def __init__(self, animation_frames: list[pygame.Surface]):
+        self.animation_frames = animation_frames
 
         self.pos = Vector2(
             random.uniform(0, WIDTH),
@@ -84,9 +94,10 @@ class Sheep:
         self.turn_start_angle = self.display_angle
         self.turn_elapsed = TURN_DURATION_SEC
 
-        # Fixed collision radius based on the round/original sheep body,
-        # even when the elongated sprite is shown while moving.
-        self.animation_phase = random.uniform(0.0, 1.0)
+        # Start each sheep at a random frame offset so they do not look synchronized.
+        self.anim_frame_cursor = random.uniform(0.0, float(len(self.animation_frames)))
+
+        # Fixed collision radius based on the round/original sheep body.
         self.base_radius = SHEEP_SCALE * 0.38
 
     def retarget_orientation(self) -> None:
@@ -131,16 +142,13 @@ class Sheep:
         self.retarget_orientation()
         self.update_orientation(dt)
 
-        speed_ratio = clamp(self.vel.length() / self.speed, 0.0, 1.0)
-        self.animation_phase = (self.animation_phase + WALK_CYCLE_HZ * speed_ratio * dt) % 1.0
+        # Advance animation at authored rate (60 fps) while moving.
+        if self.vel.length_squared() > 1e-6:
+            self.anim_frame_cursor = (self.anim_frame_cursor + SHEEP_ANIM_FPS * dt) % len(self.animation_frames)
 
     def draw(self, screen: pygame.Surface) -> None:
-        is_moving = self.vel.length_squared() > 1e-6
-        if is_moving:
-            # Alternate between short and long sheep shape while walking.
-            base_sprite = self.idle_sprite if self.animation_phase < 0.5 else self.run_sprite
-        else:
-            base_sprite = self.idle_sprite
+        frame_index = int(self.anim_frame_cursor) % len(self.animation_frames)
+        base_sprite = self.animation_frames[frame_index]
 
         render_angle = -self.display_angle
         rotated = pygame.transform.rotozoom(base_sprite, render_angle, 1.0)
@@ -228,10 +236,13 @@ def main() -> None:
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("consolas", 18)
 
-    sheep_idle = load_sprite(SHEEP_IDLE_PATH, SHEEP_SCALE)
-    sheep_run = load_sprite(SHEEP_RUN_PATH, SHEEP_SCALE)
+    sheep_animation_frames = load_sheep_animation_frames(
+        SHEEP_ANIM_DIR,
+        SHEEP_SCALE,
+        SHEEP_ANIM_FRAME_COUNT,
+    )
 
-    flock = [Sheep(sheep_idle, sheep_run) for _ in range(NUM_SHEEP)]
+    flock = [Sheep(sheep_animation_frames) for _ in range(NUM_SHEEP)]
 
     running = True
     while running:
@@ -265,3 +276,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
