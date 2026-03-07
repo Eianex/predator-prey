@@ -17,7 +17,7 @@ ASSET_DIR = Path("img")
 SHEEP_IDLE_PATH = ASSET_DIR / "sheep.png"
 SHEEP_RUN_PATH = ASSET_DIR / "sheep_long.png"
 
-NUM_SHEEP = 5
+NUM_SHEEP = 10
 SHEEP_SCALE = 54  # final rendered width/height in pixels
 SHEEP_SPEED = 95.0
 
@@ -52,11 +52,6 @@ def load_sprite(path: Path, size: int) -> pygame.Surface:
     return pygame.transform.smoothscale(surface, (size, size))
 
 
-def angle_diff_deg(current: float, target: float) -> float:
-    """Smallest signed angular difference from current to target."""
-    return (target - current + 180.0) % 360.0 - 180.0
-
-
 # ------------------------------------------------------------
 # Sheep agent
 # ------------------------------------------------------------
@@ -70,74 +65,21 @@ class Sheep:
             random.uniform(0, HEIGHT),
         )
 
+        # Random initial direction, fixed speed for all sheep.
         initial_angle = random.uniform(0, math.tau)
-        initial_speed = random.uniform(40.0, 90.0)
-        self.vel = Vector2(math.cos(initial_angle), math.sin(initial_angle)) * initial_speed
-        self.acc = Vector2()
+        self.speed = SHEEP_SPEED
+        self.vel = Vector2(math.cos(initial_angle), math.sin(initial_angle)) * self.speed
 
-        # Vehicle / steering parameters
-        self.max_speed = 120.0
-        self.max_force = 85.0
-        self.drag = 0.92
-
-        # Wander behavior parameters
-        self.wander_angle = random.uniform(0, math.tau)
-        self.wander_rate = 1.7
-        self.wander_radius = 28.0
-        self.wander_distance = 52.0
-
-        # Smooth sprite orientation in degrees.
+        # Sprite orientation in degrees.
         # Assumes the animal faces "up" in the sprite image.
         self.display_angle = math.degrees(math.atan2(-self.vel.x, self.vel.y))
-        self.max_turn_speed = 320.0  # degrees per second
 
         # Fixed collision radius based on the round/original sheep body,
         # even when the elongated sprite is shown while moving.
         self.animation_phase = random.uniform(0.0, math.tau)
         self.base_radius = SHEEP_SCALE * 0.38
 
-    def apply_force(self, force: Vector2) -> None:
-        self.acc += force
-
-    def wander(self, dt: float) -> None:
-        # Continuous steering / vehicle-model style wander.
-        if self.vel.length_squared() < 1e-6:
-            heading = Vector2(0, -1)
-        else:
-            heading = self.vel.normalize()
-
-        self.wander_angle += random.uniform(-1.0, 1.0) * self.wander_rate * dt
-
-        circle_center = heading * self.wander_distance
-        offset = Vector2(math.cos(self.wander_angle), math.sin(self.wander_angle)) * self.wander_radius
-        desired = circle_center + offset
-
-        if desired.length_squared() > 1e-6:
-            desired = desired.normalize() * self.max_speed
-            steering = desired - self.vel
-            if steering.length() > self.max_force:
-                steering.scale_to_length(self.max_force)
-            self.apply_force(steering)
-
     def update(self, dt: float) -> None:
-        self.wander(dt)
-
-        self.vel += self.acc * dt
-        self.acc.update(0.0, 0.0)
-
-        # Soft drag keeps the sheep from running at max speed all the time.
-        self.vel *= self.drag
-
-        speed = self.vel.length()
-        if speed > self.max_speed:
-            self.vel.scale_to_length(self.max_speed)
-        elif speed < 28.0:
-            # Give a gentle push if the sheep slows down too much.
-            heading = Vector2(random.uniform(-1.0, 1.0), random.uniform(-1.0, 1.0))
-            if heading.length_squared() > 1e-6:
-                heading = heading.normalize()
-                self.vel += heading * 20.0 * dt
-
         self.pos += self.vel * dt
         self.pos, self.vel = bounce_in_bounds(
             self.pos,
@@ -147,18 +89,15 @@ class Sheep:
             HEIGHT,
         )
 
-        # Smoothly rotate to match movement direction.
+        # Keep total speed constant and align sprite to velocity.
         if self.vel.length_squared() > 1e-6:
-            target_angle = math.degrees(math.atan2(-self.vel.x, self.vel.y))
-            delta = angle_diff_deg(self.display_angle, target_angle)
-            max_step = self.max_turn_speed * dt
-            self.display_angle += clamp(delta, -max_step, max_step)
+            self.vel = self.vel.normalize() * self.speed
+            self.display_angle = math.degrees(math.atan2(-self.vel.x, self.vel.y))
 
-        self.animation_phase += speed * 0.06 * dt
+        self.animation_phase += self.speed * 0.06 * dt
 
     def draw(self, screen: pygame.Surface) -> None:
-        speed = self.vel.length()
-        speed_ratio = clamp(speed / self.max_speed, 0.0, 1.0)
+        speed_ratio = clamp(self.vel.length() / self.speed, 0.0, 1.0)
 
         # Switch to elongated sprite when moving faster.
         if speed_ratio > 0.42:
