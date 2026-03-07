@@ -22,8 +22,8 @@ ANIM_FRAME_COUNT = 120
 ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 
-NUM_SHEEP = 25
-NUM_WOLVES = 4
+NUM_SHEEP = 30
+NUM_WOLVES = 2
 MAX_SHEEP = 160
 
 SHEEP_SCALE = 64
@@ -35,7 +35,7 @@ WOLF_SPEED = 200.0
 TURN_DURATION_SEC = 0.5
 STEP_SPEED_MULT_EXPAND = 0.8
 STEP_SPEED_MULT_COMPRESS = 2 - STEP_SPEED_MULT_EXPAND
-SHEEP_REPRODUCTION_COOLDOWN_SEC = 5.0
+SHEEP_REPRODUCTION_COOLDOWN_SEC = 4.0
 
 
 # ------------------------------------------------------------
@@ -296,6 +296,8 @@ def resolve_interactions(sheep_flock: list[Sheep], wolf_pack: list[Wolf], sheep_
 
             if isinstance(a, Sheep) and isinstance(b, Sheep) and a.can_reproduce() and b.can_reproduce():
                 newborn_sheep.append(spawn_sheep_near(a, b, sheep_animation_frames))
+                a.reproduction_cooldown = SHEEP_REPRODUCTION_COOLDOWN_SEC
+                b.reproduction_cooldown = SHEEP_REPRODUCTION_COOLDOWN_SEC
 
             elastic_collision_response(a, b, normal, dist, min_dist)
 
@@ -371,6 +373,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 
