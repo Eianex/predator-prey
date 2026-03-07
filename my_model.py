@@ -14,26 +14,31 @@ FPS = 60
 BG_COLOR = (78, 145, 68)
 
 ASSET_DIR = Path("img")
-SHEEP_ANIM_DIR = ASSET_DIR / "animation" / "sheep"
-SHEEP_ANIM_FRAME_COUNT = 120
-SHEEP_ANIM_CYCLE_SEC = 0.5
-SHEEP_ANIM_FPS = SHEEP_ANIM_FRAME_COUNT / SHEEP_ANIM_CYCLE_SEC
+ANIM_DIR = ASSET_DIR / "animation"
+SHEEP_ANIM_DIR = ANIM_DIR / "sheep"
+WOLF_ANIM_DIR = ANIM_DIR / "wolf"
 
-NUM_SHEEP = 10
-SHEEP_SCALE = 72
-SHEEP_SPEED = 95.0
+ANIM_FRAME_COUNT = 120
+ANIM_CYCLE_SEC = 0.5
+ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
+
+NUM_SHEEP = 8
+NUM_WOLVES = 2
+
+SHEEP_SCALE = 64
+WOLF_SCALE = 64
+
+SHEEP_SPEED = 100.0
+WOLF_SPEED = 200.0
+
 TURN_DURATION_SEC = 0.5
-STEP_SPEED_MULT_EXPAND = 0.7
-STEP_SPEED_MULT_COMPRESS = 2-STEP_SPEED_MULT_EXPAND
+STEP_SPEED_MULT_EXPAND = 0.8
+STEP_SPEED_MULT_COMPRESS = 2 - STEP_SPEED_MULT_EXPAND
 
 
 # ------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------
-def clamp(value: float, min_value: float, max_value: float) -> float:
-    return max(min_value, min(max_value, value))
-
-
 def angle_diff_deg(current: float, target: float) -> float:
     """Smallest signed angular difference from current to target."""
     return (target - current + 180.0) % 360.0 - 180.0
@@ -62,31 +67,31 @@ def load_sprite(path: Path, size: int) -> pygame.Surface:
     return pygame.transform.smoothscale(surface, (size, size))
 
 
-def load_sheep_animation_frames(directory: Path, size: int, frame_count: int) -> list[pygame.Surface]:
+def load_animation_frames(directory: Path, prefix: str, size: int, frame_count: int) -> list[pygame.Surface]:
     frames: list[pygame.Surface] = []
     for i in range(frame_count):
-        frame_path = directory / f"sheep{i:04d}.png"
+        frame_path = directory / f"{prefix}{i:04d}.png"
         if not frame_path.exists():
-            raise FileNotFoundError(f"Missing sheep animation frame: {frame_path}")
+            raise FileNotFoundError(f"Missing animation frame: {frame_path}")
         frames.append(load_sprite(frame_path, size))
     return frames
 
 
 # ------------------------------------------------------------
-# Sheep agent
+# Agents
 # ------------------------------------------------------------
-class Sheep:
-    def __init__(self, animation_frames: list[pygame.Surface]):
+class MovingAgent:
+    def __init__(self, animation_frames: list[pygame.Surface], speed: float, scale: int):
         self.animation_frames = animation_frames
+        self.speed = speed
 
         self.pos = Vector2(
             random.uniform(0, WIDTH),
             random.uniform(0, HEIGHT),
         )
 
-        # Random initial direction, fixed speed for all sheep.
+        # Random initial direction.
         initial_angle = random.uniform(0, math.tau)
-        self.speed = SHEEP_SPEED
         self.vel = Vector2(math.cos(initial_angle), math.sin(initial_angle)) * self.speed
 
         # Sprite orientation in degrees.
@@ -96,11 +101,11 @@ class Sheep:
         self.turn_start_angle = self.display_angle
         self.turn_elapsed = TURN_DURATION_SEC
 
-        # Start each sheep at a random frame offset so they do not look synchronized.
+        # Start each agent at a random frame offset so they do not look synchronized.
         self.anim_frame_cursor = random.uniform(0.0, float(len(self.animation_frames)))
 
-        # Fixed collision radius based on the round/original sheep body.
-        self.base_radius = SHEEP_SCALE * 0.38
+        # Collision radius based on sprite scale.
+        self.base_radius = scale * 0.38
 
     def retarget_orientation(self) -> None:
         if self.vel.length_squared() < 1e-6:
@@ -159,7 +164,7 @@ class Sheep:
 
         # Advance animation at authored rate while moving.
         if self.vel.length_squared() > 1e-6:
-            self.anim_frame_cursor = (self.anim_frame_cursor + SHEEP_ANIM_FPS * dt) % len(self.animation_frames)
+            self.anim_frame_cursor = (self.anim_frame_cursor + ANIM_FPS * dt) % len(self.animation_frames)
 
     def draw(self, screen: pygame.Surface) -> None:
         frame_index = int(self.anim_frame_cursor) % len(self.animation_frames)
@@ -168,7 +173,6 @@ class Sheep:
         render_angle = -self.display_angle
         rotated = pygame.transform.rotozoom(base_sprite, render_angle, 1.0)
         rect = rotated.get_rect(center=(self.pos.x, self.pos.y))
-
         screen.blit(rotated, rect)
 
         # Direction / heading line follows the exact rendered sprite angle.
@@ -185,16 +189,22 @@ class Sheep:
             2,
         )
 
-        # Optional subtle debug ring for body radius / collision proxy.
-        # Uncomment during tuning:
-        # pygame.draw.circle(screen, (220, 255, 220), self.pos, self.base_radius, 1)
+
+class Sheep(MovingAgent):
+    def __init__(self, animation_frames: list[pygame.Surface]):
+        super().__init__(animation_frames, speed=SHEEP_SPEED, scale=SHEEP_SCALE)
 
 
-def resolve_sheep_collisions(flock: list[Sheep]) -> None:
-    for i in range(len(flock)):
-        a = flock[i]
-        for j in range(i + 1, len(flock)):
-            b = flock[j]
+class Wolf(MovingAgent):
+    def __init__(self, animation_frames: list[pygame.Surface]):
+        super().__init__(animation_frames, speed=WOLF_SPEED, scale=WOLF_SCALE)
+
+
+def resolve_collisions(agents: list[MovingAgent]) -> None:
+    for i in range(len(agents)):
+        a = agents[i]
+        for j in range(i + 1, len(agents)):
+            b = agents[j]
 
             delta = b.pos - a.pos
             min_dist = a.base_radius + b.base_radius
@@ -231,7 +241,7 @@ def resolve_sheep_collisions(flock: list[Sheep]) -> None:
                 a.vel += (vb_n - va_n) * normal
                 b.vel += (va_n - vb_n) * normal
 
-                # Keep every sheep at constant speed.
+                # Keep every agent at constant base speed.
                 if a.vel.length_squared() > 1e-6:
                     a.vel = a.vel.normalize() * a.speed
                     a.retarget_orientation()
@@ -251,13 +261,22 @@ def main() -> None:
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("consolas", 18)
 
-    sheep_animation_frames = load_sheep_animation_frames(
+    sheep_animation_frames = load_animation_frames(
         SHEEP_ANIM_DIR,
+        "sheep",
         SHEEP_SCALE,
-        SHEEP_ANIM_FRAME_COUNT,
+        ANIM_FRAME_COUNT,
+    )
+    wolf_animation_frames = load_animation_frames(
+        WOLF_ANIM_DIR,
+        "wolf",
+        WOLF_SCALE,
+        ANIM_FRAME_COUNT,
     )
 
-    flock = [Sheep(sheep_animation_frames) for _ in range(NUM_SHEEP)]
+    sheep_flock = [Sheep(sheep_animation_frames) for _ in range(NUM_SHEEP)]
+    wolf_pack = [Wolf(wolf_animation_frames) for _ in range(NUM_WOLVES)]
+    all_agents: list[MovingAgent] = [*sheep_flock, *wolf_pack]
 
     running = True
     while running:
@@ -269,20 +288,22 @@ def main() -> None:
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
 
-        for sheep in flock:
-            sheep.update(dt)
+        for agent in all_agents:
+            agent.update(dt)
 
-        resolve_sheep_collisions(flock)
+        resolve_collisions(all_agents)
 
         screen.fill(BG_COLOR)
 
-        for sheep in flock:
-            sheep.draw(screen)
+        for agent in all_agents:
+            agent.draw(screen)
 
         fps_text = font.render(f"FPS: {clock.get_fps():5.1f}", True, (240, 245, 240))
-        sheep_text = font.render(f"Sheep: {len(flock)}", True, (240, 245, 240))
+        sheep_text = font.render(f"Sheep: {len(sheep_flock)}", True, (240, 245, 240))
+        wolf_text = font.render(f"Wolves: {len(wolf_pack)}", True, (240, 245, 240))
         screen.blit(fps_text, (12, 10))
         screen.blit(sheep_text, (12, 32))
+        screen.blit(wolf_text, (12, 54))
 
         pygame.display.flip()
 
