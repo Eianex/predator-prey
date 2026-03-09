@@ -10,7 +10,7 @@ from pygame.math import Vector2
 # ------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------
-WIDTH, HEIGHT = 1280, 720
+WIDTH, HEIGHT = 800, 800
 FPS = 60
 BG_COLOR = (78, 145, 68)
 
@@ -27,8 +27,8 @@ NUM_SHEEP = 25
 NUM_WOLVES = 3
 MAX_SHEEP = 160
 
-SHEEP_SCALE = 64
-WOLF_SCALE = 64
+SHEEP_SCALE = 50
+WOLF_SCALE = 50
 
 SHEEP_SPEED = 100.0
 WOLF_SPEED = 200.0
@@ -69,7 +69,7 @@ def bounce_in_bounds(
     return pos, vel
 
 
-def load_sprite(path: Path, size: int) -> pygame.Surface:
+def load_image(path: Path, size: int) -> pygame.Surface:
     surface = pygame.image.load(path.as_posix()).convert_alpha()
     return pygame.transform.smoothscale(surface, (size, size))
 
@@ -82,7 +82,7 @@ def load_animation_frames(
         frame_path = directory / f"{prefix}{i:04d}.png"
         if not frame_path.exists():
             raise FileNotFoundError(f"Missing animation frame: {frame_path}")
-        frames.append(load_sprite(frame_path, size))
+        frames.append(load_image(frame_path, size))
     return frames
 
 
@@ -302,10 +302,10 @@ class Sheep:
 
     def draw(self, screen: pygame.Surface) -> None:
         frame_index = int(self.anim_frame_cursor) % len(self.animation_frames)
-        base_sprite = self.animation_frames[frame_index]
+        base_image = self.animation_frames[frame_index]
 
         render_angle = -self.display_angle
-        rotated = pygame.transform.rotozoom(base_sprite, render_angle, 1.0)
+        rotated = pygame.transform.rotozoom(base_image, render_angle, 1.0)
         rect = rotated.get_rect(center=(self.pos.x, self.pos.y))
         screen.blit(rotated, rect)
 
@@ -418,10 +418,10 @@ class Wolf:
 
     def draw(self, screen: pygame.Surface) -> None:
         frame_index = int(self.anim_frame_cursor) % len(self.animation_frames)
-        base_sprite = self.animation_frames[frame_index]
+        base_image = self.animation_frames[frame_index]
 
         render_angle = -self.display_angle
-        rotated = pygame.transform.rotozoom(base_sprite, render_angle, 1.0)
+        rotated = pygame.transform.rotozoom(base_image, render_angle, 1.0)
         rect = rotated.get_rect(center=(self.pos.x, self.pos.y))
         screen.blit(rotated, rect)
 
