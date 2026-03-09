@@ -1,5 +1,6 @@
 import math
 import random
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
@@ -165,15 +166,155 @@ class RandomWalkMotor:
 
 
 # ------------------------------------------------------------
+# ID Generator
+# ------------------------------------------------------------
+class UniqueIdGenerator:
+    def __init__(self, start: int = 1):
+        self._next_id = max(1, start)
+
+    def next_id(self) -> int:
+        value = self._next_id
+        self._next_id += 1
+        return value
+
+
+# ------------------------------------------------------------
+# Animals
+# ------------------------------------------------------------
+class Sheep:
+    def __init__(
+        self,
+        animal_id: int,
+        motor: MovementMotor,
+        position: Vector2,
+        speed: float,
+        scale: int,
+        initial_reproduction_cooldown: float = 0.0,
+    ):
+        self.id = animal_id
+        self.motor = motor
+        self.speed = speed
+        self.pos = position
+        self.reproduction_cooldown = max(0.0, initial_reproduction_cooldown)
+        self.is_alive = True
+
+        initial_angle = random.uniform(0.0, math.tau)
+        self.vel = (
+            Vector2(math.cos(initial_angle), math.sin(initial_angle)) * self.speed
+        )
+        self.base_radius = scale * 0.38
+
+    def move(self, dt: float, displacement_scale: float) -> None:
+        self.pos, self.vel = self.motor.advance(
+            self.pos,
+            self.vel,
+            self.speed,
+            dt,
+            self.base_radius,
+            displacement_scale,
+        )
+
+        if self.reproduction_cooldown > 0.0:
+            self.reproduction_cooldown = max(0.0, self.reproduction_cooldown - dt)
+
+    def eat(self) -> None:
+        # Sheep currently do not eat other agents.
+        return
+
+    def die(self) -> None:
+        self.is_alive = False
+
+    def can_reproduce(self) -> bool:
+        return self.reproduction_cooldown <= 0.0 and self.is_alive
+
+    def reproduce(
+        self,
+        other: "Sheep",
+        child_id: int,
+        child_motor: MovementMotor,
+        child_speed: float,
+        child_scale: int,
+        cooldown_sec: float,
+    ) -> "Sheep | None":
+        if not self.can_reproduce() or not other.can_reproduce():
+            return None
+
+        midpoint = (self.pos + other.pos) * 0.5
+        offset = Vector2(random.uniform(-1.0, 1.0), random.uniform(-1.0, 1.0))
+        if offset.length_squared() < 1e-6:
+            offset = Vector2(1.0, 0.0)
+        offset = offset.normalize() * random.uniform(0.0, self.base_radius)
+
+        child = Sheep(
+            animal_id=child_id,
+            motor=child_motor,
+            position=midpoint + offset,
+            speed=child_speed,
+            scale=child_scale,
+            initial_reproduction_cooldown=cooldown_sec,
+        )
+
+        self.reproduction_cooldown = cooldown_sec
+        other.reproduction_cooldown = cooldown_sec
+        return child
+
+
+class Wolf:
+    def __init__(
+        self,
+        animal_id: int,
+        motor: MovementMotor,
+        position: Vector2,
+        speed: float,
+        scale: int,
+    ):
+        self.id = animal_id
+        self.motor = motor
+        self.speed = speed
+        self.pos = position
+        self.is_alive = True
+
+        initial_angle = random.uniform(0.0, math.tau)
+        self.vel = (
+            Vector2(math.cos(initial_angle), math.sin(initial_angle)) * self.speed
+        )
+        self.base_radius = scale * 0.38
+
+    def move(self, dt: float, displacement_scale: float) -> None:
+        self.pos, self.vel = self.motor.advance(
+            self.pos,
+            self.vel,
+            self.speed,
+            dt,
+            self.base_radius,
+            displacement_scale,
+        )
+
+    def eat(self, target_sheep: Sheep, sheep_by_id: dict[int, Sheep]) -> None:
+        if target_sheep.id in sheep_by_id:
+            target_sheep.die()
+            del sheep_by_id[target_sheep.id]
+
+    def die(self) -> None:
+        self.is_alive = False
+
+    def reproduce(self) -> None:
+        # Placeholder for future wolf reproduction behavior.
+        return
+
+
+Agent = Sheep | Wolf
+
+
+# ------------------------------------------------------------
 # Collision Contracts
 # ------------------------------------------------------------
 class CollidableAnimal(Protocol):
+    id: int
     pos: Vector2
     vel: Vector2
     base_radius: float
     speed: float
-
-    def retarget_orientation(self) -> None: ...
 
 
 def elastic_collision_response(
@@ -201,131 +342,141 @@ def elastic_collision_response(
 
         if a.vel.length_squared() > 1e-6:
             a.vel = a.vel.normalize() * a.speed
-            a.retarget_orientation()
 
         if b.vel.length_squared() > 1e-6:
             b.vel = b.vel.normalize() * b.speed
-            b.retarget_orientation()
 
 
 # ------------------------------------------------------------
-# Sheep
+# Painter
 # ------------------------------------------------------------
-class Sheep:
+@dataclass
+class AnimalVisual:
+    animation_frames: list[pygame.Surface]
+    step_expand: float
+    step_compress: float
+    turn_duration_sec: float
+    anim_fps: float
+    anim_frame_cursor: float
+    display_angle: float
+    target_angle: float
+    turn_start_angle: float
+    turn_elapsed: float
+
+
+class Painter:
     def __init__(
         self,
-        animation_frames: list[pygame.Surface],
-        motor: MovementMotor | None = None,
-        speed: float = SHEEP_SPEED,
-        scale: int = SHEEP_SCALE,
-        step_expand: float = SHEEP_STEP_SPEED_MULT_EXPAND,
-        step_compress: float = SHEEP_STEP_SPEED_MULT_COMPRESS,
-        initial_reproduction_cooldown: float = 0.0,
+        sheep_animation_frames: list[pygame.Surface],
+        wolf_animation_frames: list[pygame.Surface],
     ):
-        self.animation_frames = animation_frames
-        self.motor: MovementMotor = motor if motor is not None else RandomWalkMotor()
+        self.sheep_animation_frames = sheep_animation_frames
+        self.wolf_animation_frames = wolf_animation_frames
+        self.visuals_by_id: dict[int, AnimalVisual] = {}
 
-        self.speed = speed
-        self.step_expand = step_expand
-        self.step_compress = step_compress
-        self.reproduction_cooldown = max(0.0, initial_reproduction_cooldown)
+    @staticmethod
+    def _velocity_to_display_angle(vel: Vector2) -> float:
+        return math.degrees(math.atan2(-vel.x, vel.y))
 
-        self.pos = Vector2(
-            random.uniform(0, WIDTH),
-            random.uniform(0, HEIGHT),
+    def _get_species_visual_setup(
+        self, animal: Agent
+    ) -> tuple[list[pygame.Surface], float, float]:
+        if isinstance(animal, Sheep):
+            return (
+                self.sheep_animation_frames,
+                SHEEP_STEP_SPEED_MULT_EXPAND,
+                SHEEP_STEP_SPEED_MULT_COMPRESS,
+            )
+        return (
+            self.wolf_animation_frames,
+            WOLF_STEP_SPEED_MULT_EXPAND,
+            WOLF_STEP_SPEED_MULT_COMPRESS,
         )
 
-        initial_angle = random.uniform(0, math.tau)
-        self.vel = (
-            Vector2(math.cos(initial_angle), math.sin(initial_angle)) * self.speed
+    def _ensure_visual(self, animal: Agent) -> AnimalVisual:
+        visual = self.visuals_by_id.get(animal.id)
+        if visual is not None:
+            return visual
+
+        frames, step_expand, step_compress = self._get_species_visual_setup(animal)
+        initial_angle = self._velocity_to_display_angle(animal.vel)
+        visual = AnimalVisual(
+            animation_frames=frames,
+            step_expand=step_expand,
+            step_compress=step_compress,
+            turn_duration_sec=TURN_DURATION_SEC,
+            anim_fps=ANIM_FPS,
+            anim_frame_cursor=random.uniform(0.0, float(len(frames))),
+            display_angle=initial_angle,
+            target_angle=initial_angle,
+            turn_start_angle=initial_angle,
+            turn_elapsed=TURN_DURATION_SEC,
         )
+        self.visuals_by_id[animal.id] = visual
+        return visual
 
-        self.display_angle = math.degrees(math.atan2(-self.vel.x, self.vel.y))
-        self.target_angle = self.display_angle
-        self.turn_start_angle = self.display_angle
-        self.turn_elapsed = TURN_DURATION_SEC
+    def get_displacement_scale(self, animal: Agent) -> float:
+        visual = self._ensure_visual(animal)
+        if animal.vel.length_squared() < 1e-6:
+            return 0.0
 
-        self.anim_frame_cursor = random.uniform(0.0, float(len(self.animation_frames)))
-        self.base_radius = scale * 0.38
-
-    def can_reproduce(self) -> bool:
-        return self.reproduction_cooldown <= 0.0
-
-    def retarget_orientation(self) -> None:
-        if self.vel.length_squared() < 1e-6:
-            return
-
-        new_target = math.degrees(math.atan2(-self.vel.x, self.vel.y))
-        if abs(angle_diff_deg(self.target_angle, new_target)) > 1e-3:
-            self.turn_start_angle = self.display_angle
-            self.target_angle = new_target
-            self.turn_elapsed = 0.0
-
-    def update_orientation(self, dt: float) -> None:
-        if TURN_DURATION_SEC <= 1e-6:
-            self.display_angle = self.target_angle
-            self.turn_elapsed = TURN_DURATION_SEC
-            return
-
-        if self.turn_elapsed >= TURN_DURATION_SEC:
-            self.display_angle = self.target_angle
-            return
-
-        self.turn_elapsed = min(TURN_DURATION_SEC, self.turn_elapsed + dt)
-        progress = self.turn_elapsed / TURN_DURATION_SEC
-        delta = angle_diff_deg(self.turn_start_angle, self.target_angle)
-        self.display_angle = self.turn_start_angle + delta * progress
-
-    def step_speed_multiplier(self) -> float:
-        frame_count = len(self.animation_frames)
+        frame_count = len(visual.animation_frames)
         if frame_count <= 0:
             return 1.0
 
-        cycle_phase = (self.anim_frame_cursor % frame_count) / frame_count
+        cycle_phase = (visual.anim_frame_cursor % frame_count) / frame_count
         if cycle_phase < 0.5:
-            return self.step_expand
-        return self.step_compress
+            return visual.step_expand
+        return visual.step_compress
 
-    def update(self, dt: float) -> None:
-        displacement_scale = (
-            self.step_speed_multiplier() if self.vel.length_squared() > 1e-6 else 0.0
-        )
-        self.pos, self.vel = self.motor.advance(
-            self.pos,
-            self.vel,
-            self.speed,
-            dt,
-            self.base_radius,
-            displacement_scale,
-        )
-        self.pos, self.vel = bounce_in_bounds(
-            self.pos, self.vel, self.base_radius, WIDTH, HEIGHT
-        )
+    def update_visual(self, animal: Agent, dt: float) -> None:
+        visual = self._ensure_visual(animal)
 
-        self.retarget_orientation()
-        self.update_orientation(dt)
+        if animal.vel.length_squared() > 1e-6:
+            new_target = self._velocity_to_display_angle(animal.vel)
+            if abs(angle_diff_deg(visual.target_angle, new_target)) > 1e-3:
+                visual.turn_start_angle = visual.display_angle
+                visual.target_angle = new_target
+                visual.turn_elapsed = 0.0
 
-        if self.vel.length_squared() > 1e-6:
-            self.anim_frame_cursor = (self.anim_frame_cursor + ANIM_FPS * dt) % len(
-                self.animation_frames
+        if visual.turn_duration_sec <= 1e-6:
+            visual.display_angle = visual.target_angle
+            visual.turn_elapsed = visual.turn_duration_sec
+        elif visual.turn_elapsed < visual.turn_duration_sec:
+            visual.turn_elapsed = min(
+                visual.turn_duration_sec, visual.turn_elapsed + dt
             )
+            progress = visual.turn_elapsed / visual.turn_duration_sec
+            delta = angle_diff_deg(visual.turn_start_angle, visual.target_angle)
+            visual.display_angle = visual.turn_start_angle + delta * progress
+        else:
+            visual.display_angle = visual.target_angle
 
-        if self.reproduction_cooldown > 0.0:
-            self.reproduction_cooldown = max(0.0, self.reproduction_cooldown - dt)
+        if animal.vel.length_squared() > 1e-6 and len(visual.animation_frames) > 0:
+            visual.anim_frame_cursor = (
+                visual.anim_frame_cursor + visual.anim_fps * dt
+            ) % len(visual.animation_frames)
 
-    def draw(self, screen: pygame.Surface, x_offset: int = 0) -> None:
-        frame_index = int(self.anim_frame_cursor) % len(self.animation_frames)
-        base_image = self.animation_frames[frame_index]
+    def draw_agent(
+        self, screen: pygame.Surface, animal: Agent, x_offset: int = 0
+    ) -> None:
+        visual = self._ensure_visual(animal)
 
-        render_angle = -self.display_angle
+        if len(visual.animation_frames) == 0:
+            return
+
+        frame_index = int(visual.anim_frame_cursor) % len(visual.animation_frames)
+        base_image = visual.animation_frames[frame_index]
+
+        render_angle = -visual.display_angle
         rotated = pygame.transform.rotozoom(base_image, render_angle, 1.0)
-        rect = rotated.get_rect(center=(self.pos.x + x_offset, self.pos.y))
+        rect = rotated.get_rect(center=(animal.pos.x + x_offset, animal.pos.y))
         screen.blit(rotated, rect)
 
         heading_angle_rad = math.radians(render_angle)
         direction = Vector2(math.sin(heading_angle_rad), math.cos(heading_angle_rad))
-        line_start = Vector2(self.pos.x + x_offset, self.pos.y)
-        line_end = line_start + direction * (self.base_radius + 18)
+        line_start = Vector2(animal.pos.x + x_offset, animal.pos.y)
+        line_end = line_start + direction * (animal.base_radius + 18)
         pygame.draw.line(
             screen,
             (245, 245, 245),
@@ -334,124 +485,22 @@ class Sheep:
             2,
         )
 
-
-# ------------------------------------------------------------
-# Wolf
-# ------------------------------------------------------------
-class Wolf:
-    def __init__(
+    def draw_agents(
         self,
-        animation_frames: list[pygame.Surface],
-        motor: MovementMotor | None = None,
-        speed: float = WOLF_SPEED,
-        scale: int = WOLF_SCALE,
-        step_expand: float = WOLF_STEP_SPEED_MULT_EXPAND,
-        step_compress: float = WOLF_STEP_SPEED_MULT_COMPRESS,
-    ):
-        self.animation_frames = animation_frames
-        self.motor: MovementMotor = motor if motor is not None else StraightLineMotor()
+        screen: pygame.Surface,
+        sheep_by_id: dict[int, Sheep],
+        wolf_by_id: dict[int, Wolf],
+        x_offset: int = 0,
+    ) -> None:
+        for sheep in sheep_by_id.values():
+            self.draw_agent(screen, sheep, x_offset)
+        for wolf in wolf_by_id.values():
+            self.draw_agent(screen, wolf, x_offset)
 
-        self.speed = speed
-        self.step_expand = step_expand
-        self.step_compress = step_compress
-
-        self.pos = Vector2(
-            random.uniform(0, WIDTH),
-            random.uniform(0, HEIGHT),
-        )
-
-        initial_angle = random.uniform(0, math.tau)
-        self.vel = (
-            Vector2(math.cos(initial_angle), math.sin(initial_angle)) * self.speed
-        )
-
-        self.display_angle = math.degrees(math.atan2(-self.vel.x, self.vel.y))
-        self.target_angle = self.display_angle
-        self.turn_start_angle = self.display_angle
-        self.turn_elapsed = TURN_DURATION_SEC
-
-        self.anim_frame_cursor = random.uniform(0.0, float(len(self.animation_frames)))
-        self.base_radius = scale * 0.38
-
-    def retarget_orientation(self) -> None:
-        if self.vel.length_squared() < 1e-6:
-            return
-
-        new_target = math.degrees(math.atan2(-self.vel.x, self.vel.y))
-        if abs(angle_diff_deg(self.target_angle, new_target)) > 1e-3:
-            self.turn_start_angle = self.display_angle
-            self.target_angle = new_target
-            self.turn_elapsed = 0.0
-
-    def update_orientation(self, dt: float) -> None:
-        if TURN_DURATION_SEC <= 1e-6:
-            self.display_angle = self.target_angle
-            self.turn_elapsed = TURN_DURATION_SEC
-            return
-
-        if self.turn_elapsed >= TURN_DURATION_SEC:
-            self.display_angle = self.target_angle
-            return
-
-        self.turn_elapsed = min(TURN_DURATION_SEC, self.turn_elapsed + dt)
-        progress = self.turn_elapsed / TURN_DURATION_SEC
-        delta = angle_diff_deg(self.turn_start_angle, self.target_angle)
-        self.display_angle = self.turn_start_angle + delta * progress
-
-    def step_speed_multiplier(self) -> float:
-        frame_count = len(self.animation_frames)
-        if frame_count <= 0:
-            return 1.0
-
-        cycle_phase = (self.anim_frame_cursor % frame_count) / frame_count
-        if cycle_phase < 0.5:
-            return self.step_expand
-        return self.step_compress
-
-    def update(self, dt: float) -> None:
-        displacement_scale = (
-            self.step_speed_multiplier() if self.vel.length_squared() > 1e-6 else 0.0
-        )
-        self.pos, self.vel = self.motor.advance(
-            self.pos,
-            self.vel,
-            self.speed,
-            dt,
-            self.base_radius,
-            displacement_scale,
-        )
-        self.pos, self.vel = bounce_in_bounds(
-            self.pos, self.vel, self.base_radius, WIDTH, HEIGHT
-        )
-
-        self.retarget_orientation()
-        self.update_orientation(dt)
-
-        if self.vel.length_squared() > 1e-6:
-            self.anim_frame_cursor = (self.anim_frame_cursor + ANIM_FPS * dt) % len(
-                self.animation_frames
-            )
-
-    def draw(self, screen: pygame.Surface, x_offset: int = 0) -> None:
-        frame_index = int(self.anim_frame_cursor) % len(self.animation_frames)
-        base_image = self.animation_frames[frame_index]
-
-        render_angle = -self.display_angle
-        rotated = pygame.transform.rotozoom(base_image, render_angle, 1.0)
-        rect = rotated.get_rect(center=(self.pos.x + x_offset, self.pos.y))
-        screen.blit(rotated, rect)
-
-        heading_angle_rad = math.radians(render_angle)
-        direction = Vector2(math.sin(heading_angle_rad), math.cos(heading_angle_rad))
-        line_start = Vector2(self.pos.x + x_offset, self.pos.y)
-        line_end = line_start + direction * (self.base_radius + 18)
-        pygame.draw.line(
-            screen,
-            (245, 245, 245),
-            (line_start.x, line_start.y),
-            (line_end.x, line_end.y),
-            2,
-        )
+    def sync_live_ids(self, live_ids: set[int]) -> None:
+        stale_ids = [aid for aid in self.visuals_by_id.keys() if aid not in live_ids]
+        for aid in stale_ids:
+            self.visuals_by_id.pop(aid, None)
 
 
 # ------------------------------------------------------------
@@ -570,92 +619,6 @@ class PopulationGraph:
 
 
 # ------------------------------------------------------------
-# Interactions
-# ------------------------------------------------------------
-def spawn_sheep_near(
-    par_a: Sheep, par_b: Sheep, sheep_animation_frames: list[pygame.Surface]
-) -> Sheep:
-    child = Sheep(
-        sheep_animation_frames,
-        initial_reproduction_cooldown=SHEEP_REPRODUCTION_COOLDOWN_SEC,
-    )
-
-    midpoint = (par_a.pos + par_b.pos) * 0.5
-    offset = Vector2(random.uniform(-1.0, 1.0), random.uniform(-1.0, 1.0))
-    if offset.length_squared() < 1e-6:
-        offset = Vector2(1.0, 0.0)
-    offset = offset.normalize() * random.uniform(0.0, par_a.base_radius)
-
-    child.pos = midpoint + offset
-    child.pos, child.vel = bounce_in_bounds(
-        child.pos, child.vel, child.base_radius, WIDTH, HEIGHT
-    )
-    return child
-
-
-def resolve_interactions(
-    sheep_flock: list[Sheep],
-    wolf_pack: list[Wolf],
-    sheep_animation_frames: list[pygame.Surface],
-) -> None:
-    all_animals: list[Sheep | Wolf] = [*sheep_flock, *wolf_pack]
-    sheep_to_remove: set[Sheep] = set()
-    newborn_sheep: list[Sheep] = []
-
-    for i in range(len(all_animals)):
-        a = all_animals[i]
-        if isinstance(a, Sheep) and a in sheep_to_remove:
-            continue
-
-        for j in range(i + 1, len(all_animals)):
-            b = all_animals[j]
-            if isinstance(b, Sheep) and b in sheep_to_remove:
-                continue
-
-            delta = b.pos - a.pos
-            min_dist = a.base_radius + b.base_radius
-            dist_sq = delta.length_squared()
-
-            if dist_sq >= min_dist * min_dist:
-                continue
-
-            if isinstance(a, Sheep) and isinstance(b, Wolf):
-                sheep_to_remove.add(a)
-                continue
-
-            if isinstance(a, Wolf) and isinstance(b, Sheep):
-                sheep_to_remove.add(b)
-                continue
-
-            if dist_sq < 1e-12:
-                angle = random.uniform(0.0, math.tau)
-                normal = Vector2(math.cos(angle), math.sin(angle))
-                dist = 0.0
-            else:
-                dist = math.sqrt(dist_sq)
-                normal = delta / dist
-
-            if (
-                isinstance(a, Sheep)
-                and isinstance(b, Sheep)
-                and a.can_reproduce()
-                and b.can_reproduce()
-            ):
-                newborn_sheep.append(spawn_sheep_near(a, b, sheep_animation_frames))
-                a.reproduction_cooldown = SHEEP_REPRODUCTION_COOLDOWN_SEC
-                b.reproduction_cooldown = SHEEP_REPRODUCTION_COOLDOWN_SEC
-
-            elastic_collision_response(a, b, normal, dist, min_dist)
-
-    if sheep_to_remove:
-        sheep_flock[:] = [s for s in sheep_flock if s not in sheep_to_remove]
-
-    if newborn_sheep and len(sheep_flock) < MAX_SHEEP:
-        slots_left = MAX_SHEEP - len(sheep_flock)
-        sheep_flock.extend(newborn_sheep[:slots_left])
-
-
-# ------------------------------------------------------------
 # Main loop
 # ------------------------------------------------------------
 def main() -> None:
@@ -681,13 +644,34 @@ def main() -> None:
         ANIM_FRAME_COUNT,
     )
 
-    sheep_flock = [
-        Sheep(sheep_animation_frames, motor=RandomWalkMotor()) for _ in range(NUM_SHEEP)
-    ]
-    wolf_pack = [
-        Wolf(wolf_animation_frames, motor=StraightLineMotor())
-        for _ in range(NUM_WOLVES)
-    ]
+    id_generator = UniqueIdGenerator(start=1)
+
+    sheep_by_id: dict[int, Sheep] = {}
+    for _ in range(NUM_SHEEP):
+        sid = id_generator.next_id()
+        sheep_by_id[sid] = Sheep(
+            animal_id=sid,
+            motor=RandomWalkMotor(),
+            position=Vector2(random.uniform(0, WIDTH), random.uniform(0, HEIGHT)),
+            speed=SHEEP_SPEED,
+            scale=SHEEP_SCALE,
+        )
+
+    wolf_by_id: dict[int, Wolf] = {}
+    for _ in range(NUM_WOLVES):
+        wid = id_generator.next_id()
+        wolf_by_id[wid] = Wolf(
+            animal_id=wid,
+            motor=StraightLineMotor(),
+            position=Vector2(random.uniform(0, WIDTH), random.uniform(0, HEIGHT)),
+            speed=WOLF_SPEED,
+            scale=WOLF_SCALE,
+        )
+
+    # Placeholder dictionary for future grass entities.
+    grass_by_id: dict[int, object] = {}
+
+    painter = Painter(sheep_animation_frames, wolf_animation_frames)
 
     panel_rect = pygame.Rect(0, 0, PANEL_WIDTH, HEIGHT)
     world_rect = pygame.Rect(PANEL_WIDTH, 0, WIDTH, HEIGHT)
@@ -699,7 +683,7 @@ def main() -> None:
         pygame.Rect(margin, margin, PANEL_WIDTH - margin * 2, graph_height),
         "Sheep Population",
         SHEEP_GRAPH_COLOR,
-        len(sheep_flock),
+        len(sheep_by_id),
     )
     wolf_graph = PopulationGraph(
         pygame.Rect(
@@ -707,7 +691,7 @@ def main() -> None:
         ),
         "Wolf Population",
         WOLF_GRAPH_COLOR,
-        len(wolf_pack),
+        len(wolf_by_id),
     )
 
     sim_time = 0.0
@@ -725,23 +709,92 @@ def main() -> None:
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
 
-        all_animals: list[Sheep | Wolf] = [*sheep_flock, *wolf_pack]
-
+        # 1) Move all logical agents.
+        all_animals: list[Agent] = [*sheep_by_id.values(), *wolf_by_id.values()]
         for animal in all_animals:
-            animal.update(dt)
+            displacement_scale = painter.get_displacement_scale(animal)
+            animal.move(dt, displacement_scale)
+            animal.pos, animal.vel = bounce_in_bounds(
+                animal.pos, animal.vel, animal.base_radius, WIDTH, HEIGHT
+            )
+            painter.update_visual(animal, dt)
 
-        resolve_interactions(sheep_flock, wolf_pack, sheep_animation_frames)
+        # 2) Pairwise interactions (no global resolve_interactions function).
+        all_animals = [*sheep_by_id.values(), *wolf_by_id.values()]
+        newborn_sheep_by_id: dict[int, Sheep] = {}
+
+        for i in range(len(all_animals)):
+            a = all_animals[i]
+            if isinstance(a, Sheep) and a.id not in sheep_by_id:
+                continue
+
+            for j in range(i + 1, len(all_animals)):
+                b = all_animals[j]
+                if isinstance(b, Sheep) and b.id not in sheep_by_id:
+                    continue
+
+                delta = b.pos - a.pos
+                min_dist = a.base_radius + b.base_radius
+                dist_sq = delta.length_squared()
+                if dist_sq >= min_dist * min_dist:
+                    continue
+
+                # Wolf eats sheep. Deletion happens inside Wolf.eat().
+                if isinstance(a, Wolf) and isinstance(b, Sheep):
+                    a.eat(b, sheep_by_id)
+                    continue
+                if isinstance(a, Sheep) and isinstance(b, Wolf):
+                    b.eat(a, sheep_by_id)
+                    continue
+
+                if dist_sq < 1e-12:
+                    angle = random.uniform(0.0, math.tau)
+                    normal = Vector2(math.cos(angle), math.sin(angle))
+                    dist = 0.0
+                else:
+                    dist = math.sqrt(dist_sq)
+                    normal = delta / dist
+
+                # Sheep reproduction.
+                if isinstance(a, Sheep) and isinstance(b, Sheep):
+                    if len(sheep_by_id) + len(newborn_sheep_by_id) < MAX_SHEEP:
+                        child = a.reproduce(
+                            other=b,
+                            child_id=id_generator.next_id(),
+                            child_motor=RandomWalkMotor(),
+                            child_speed=SHEEP_SPEED,
+                            child_scale=SHEEP_SCALE,
+                            cooldown_sec=SHEEP_REPRODUCTION_COOLDOWN_SEC,
+                        )
+                        if child is not None:
+                            child.pos, child.vel = bounce_in_bounds(
+                                child.pos,
+                                child.vel,
+                                child.base_radius,
+                                WIDTH,
+                                HEIGHT,
+                            )
+                            newborn_sheep_by_id[child.id] = child
+
+                elastic_collision_response(a, b, normal, dist, min_dist)
+
+        if newborn_sheep_by_id:
+            sheep_by_id.update(newborn_sheep_by_id)
+
+        live_ids = set(sheep_by_id.keys()) | set(wolf_by_id.keys())
+        painter.sync_live_ids(live_ids)
+
+        # Keep variable alive for future grass system integration.
+        _ = grass_by_id
 
         # Feed graph history on a fixed cadence to keep lines readable.
         while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
             sample_accum -= GRAPH_SAMPLE_INTERVAL_SEC
-            sheep_graph.add_sample(sim_time, len(sheep_flock))
-            wolf_graph.add_sample(sim_time, len(wolf_pack))
+            sheep_graph.add_sample(sim_time, len(sheep_by_id))
+            wolf_graph.add_sample(sim_time, len(wolf_by_id))
 
         sheep_graph.update(dt, sim_time)
         wolf_graph.update(dt, sim_time)
-
-        all_animals = [*sheep_flock, *wolf_pack]
 
         # Draw split layout
         screen.fill((0, 0, 0))
@@ -758,8 +811,7 @@ def main() -> None:
         sheep_graph.draw(screen, font, small_font, sim_time)
         wolf_graph.draw(screen, font, small_font, sim_time)
 
-        for animal in all_animals:
-            animal.draw(screen, x_offset=PANEL_WIDTH)
+        painter.draw_agents(screen, sheep_by_id, wolf_by_id, x_offset=PANEL_WIDTH)
 
         fps_text = small_font.render(
             f"FPS: {clock.get_fps():5.1f}", True, (220, 230, 225)
