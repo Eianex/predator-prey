@@ -26,8 +26,8 @@ NUM_SHEEP = 30
 NUM_WOLVES = 2
 MAX_SHEEP = 160
 
-SHEEP_SCALE = 64
-WOLF_SCALE = 64
+SHEEP_SCALE = 50
+WOLF_SCALE = 50
 
 SHEEP_SPEED = 100.0
 WOLF_SPEED = 200.0
@@ -46,7 +46,9 @@ def angle_diff_deg(current: float, target: float) -> float:
     return (target - current + 180.0) % 360.0 - 180.0
 
 
-def bounce_in_bounds(pos: Vector2, vel: Vector2, radius: float, width: int, height: int) -> tuple[Vector2, Vector2]:
+def bounce_in_bounds(
+    pos: Vector2, vel: Vector2, radius: float, width: int, height: int
+) -> tuple[Vector2, Vector2]:
     if pos.x < radius:
         pos.x = radius
         vel.x *= -1
@@ -64,22 +66,26 @@ def bounce_in_bounds(pos: Vector2, vel: Vector2, radius: float, width: int, heig
     return pos, vel
 
 
-def load_sprite(path: Path, size: int) -> pygame.Surface:
+def load_png(path: Path, size: int) -> pygame.Surface:
     surface = pygame.image.load(path.as_posix()).convert_alpha()
     return pygame.transform.smoothscale(surface, (size, size))
 
 
-def load_animation_frames(directory: Path, prefix: str, size: int, frame_count: int) -> list[pygame.Surface]:
+def load_animation_frames(
+    directory: Path, prefix: str, size: int, frame_count: int
+) -> list[pygame.Surface]:
     frames: list[pygame.Surface] = []
     for i in range(frame_count):
         frame_path = directory / f"{prefix}{i:04d}.png"
         if not frame_path.exists():
             raise FileNotFoundError(f"Missing animation frame: {frame_path}")
-        frames.append(load_sprite(frame_path, size))
+        frames.append(load_png(frame_path, size))
     return frames
 
 
-def elastic_collision_response(a: "MovingAgent", b: "MovingAgent", normal: Vector2, dist: float, min_dist: float) -> None:
+def elastic_collision_response(
+    a: "MovingAgent", b: "MovingAgent", normal: Vector2, dist: float, min_dist: float
+) -> None:
     # Positional correction to avoid sticky overlap.
     overlap = min_dist - dist
     if overlap > 0.0:
@@ -109,8 +115,13 @@ def elastic_collision_response(a: "MovingAgent", b: "MovingAgent", normal: Vecto
             b.retarget_orientation()
 
 
-def spawn_sheep_near(par_a: "Sheep", par_b: "Sheep", sheep_animation_frames: list[pygame.Surface]) -> "Sheep":
-    child = Sheep(sheep_animation_frames, initial_reproduction_cooldown=SHEEP_REPRODUCTION_COOLDOWN_SEC)
+def spawn_sheep_near(
+    par_a: "Sheep", par_b: "Sheep", sheep_animation_frames: list[pygame.Surface]
+) -> "Sheep":
+    child = Sheep(
+        sheep_animation_frames,
+        initial_reproduction_cooldown=SHEEP_REPRODUCTION_COOLDOWN_SEC,
+    )
 
     midpoint = (par_a.pos + par_b.pos) * 0.5
     offset = Vector2(random.uniform(-1.0, 1.0), random.uniform(-1.0, 1.0))
@@ -119,7 +130,9 @@ def spawn_sheep_near(par_a: "Sheep", par_b: "Sheep", sheep_animation_frames: lis
     offset = offset.normalize() * random.uniform(0.0, par_a.base_radius)
 
     child.pos = midpoint + offset
-    child.pos, child.vel = bounce_in_bounds(child.pos, child.vel, child.base_radius, WIDTH, HEIGHT)
+    child.pos, child.vel = bounce_in_bounds(
+        child.pos, child.vel, child.base_radius, WIDTH, HEIGHT
+    )
     return child
 
 
@@ -127,7 +140,9 @@ def spawn_sheep_near(par_a: "Sheep", par_b: "Sheep", sheep_animation_frames: lis
 # Agents
 # ------------------------------------------------------------
 class MovingAgent:
-    def __init__(self, animation_frames: list[pygame.Surface], speed: float, scale: int):
+    def __init__(
+        self, animation_frames: list[pygame.Surface], speed: float, scale: int
+    ):
         self.animation_frames = animation_frames
         self.speed = speed
 
@@ -138,7 +153,9 @@ class MovingAgent:
 
         # Random initial direction.
         initial_angle = random.uniform(0, math.tau)
-        self.vel = Vector2(math.cos(initial_angle), math.sin(initial_angle)) * self.speed
+        self.vel = (
+            Vector2(math.cos(initial_angle), math.sin(initial_angle)) * self.speed
+        )
 
         # Sprite orientation in degrees.
         # Assumes the animal faces "up" in the sprite image.
@@ -210,7 +227,9 @@ class MovingAgent:
 
         # Advance animation at authored rate while moving.
         if self.vel.length_squared() > 1e-6:
-            self.anim_frame_cursor = (self.anim_frame_cursor + ANIM_FPS * dt) % len(self.animation_frames)
+            self.anim_frame_cursor = (self.anim_frame_cursor + ANIM_FPS * dt) % len(
+                self.animation_frames
+            )
 
     def draw(self, screen: pygame.Surface) -> None:
         frame_index = int(self.anim_frame_cursor) % len(self.animation_frames)
@@ -237,7 +256,11 @@ class MovingAgent:
 
 
 class Sheep(MovingAgent):
-    def __init__(self, animation_frames: list[pygame.Surface], initial_reproduction_cooldown: float = 0.0):
+    def __init__(
+        self,
+        animation_frames: list[pygame.Surface],
+        initial_reproduction_cooldown: float = 0.0,
+    ):
         super().__init__(animation_frames, speed=SHEEP_SPEED, scale=SHEEP_SCALE)
         self.reproduction_cooldown = max(0.0, initial_reproduction_cooldown)
 
@@ -255,7 +278,11 @@ class Wolf(MovingAgent):
         super().__init__(animation_frames, speed=WOLF_SPEED, scale=WOLF_SCALE)
 
 
-def resolve_interactions(sheep_flock: list[Sheep], wolf_pack: list[Wolf], sheep_animation_frames: list[pygame.Surface]) -> None:
+def resolve_interactions(
+    sheep_flock: list[Sheep],
+    wolf_pack: list[Wolf],
+    sheep_animation_frames: list[pygame.Surface],
+) -> None:
     all_agents: list[MovingAgent] = [*sheep_flock, *wolf_pack]
     sheep_to_remove: set[Sheep] = set()
     newborn_sheep: list[Sheep] = []
@@ -294,7 +321,12 @@ def resolve_interactions(sheep_flock: list[Sheep], wolf_pack: list[Wolf], sheep_
                 dist = math.sqrt(dist_sq)
                 normal = delta / dist
 
-            if isinstance(a, Sheep) and isinstance(b, Sheep) and a.can_reproduce() and b.can_reproduce():
+            if (
+                isinstance(a, Sheep)
+                and isinstance(b, Sheep)
+                and a.can_reproduce()
+                and b.can_reproduce()
+            ):
                 newborn_sheep.append(spawn_sheep_near(a, b, sheep_animation_frames))
                 a.reproduction_cooldown = SHEEP_REPRODUCTION_COOLDOWN_SEC
                 b.reproduction_cooldown = SHEEP_REPRODUCTION_COOLDOWN_SEC
@@ -373,9 +405,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
