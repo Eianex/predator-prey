@@ -42,7 +42,7 @@ class StraightLineMotor:
 
 
 class RandomWalkMotor:
-    def __init__(self, turn_rate_rad_per_sec: float = 30.0):
+    def __init__(self, turn_rate_rad_per_sec: float = 10.0):
         self.turn_rate = turn_rate_rad_per_sec
 
     def advance(

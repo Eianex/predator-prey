@@ -449,6 +449,13 @@ class World:
                 if b.id in self.pending_dead_ids:
                     continue
 
+                # Sheep and wolves should not bounce off each other.
+                # Wolf-sheep interaction is handled by agent action logic (eating).
+                if (isinstance(a, Sheep) and isinstance(b, Wolf)) or (
+                    isinstance(a, Wolf) and isinstance(b, Sheep)
+                ):
+                    continue
+
                 delta = b.pos - a.pos
                 min_dist = a.base_radius + b.base_radius
                 dist_sq = delta.length_squared()
