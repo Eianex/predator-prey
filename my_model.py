@@ -57,9 +57,14 @@ GRAPH_SAMPLE_INTERVAL_SEC = 0.12
 # ------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------
-def angle_diff_deg(current: float, target: float) -> float:
-    """Smallest signed angular difference from current to target."""
-    return (target - current + 180.0) % 360.0 - 180.0
+class UniqueIdGenerator:
+    def __init__(self, start: int = 1):
+        self._next_id = max(1, start)
+
+    def next_id(self) -> int:
+        value = self._next_id
+        self._next_id += 1
+        return value
 
 
 def bounce_in_bounds(
@@ -80,36 +85,6 @@ def bounce_in_bounds(
         vel.y *= -1
 
     return pos, vel
-
-
-def load_image(path: Path, size: int) -> pygame.Surface:
-    surface = pygame.image.load(path.as_posix()).convert_alpha()
-    return pygame.transform.smoothscale(surface, (size, size))
-
-
-def load_animation_frames(
-    directory: Path, prefix: str, size: int, frame_count: int
-) -> list[pygame.Surface]:
-    frames: list[pygame.Surface] = []
-    for i in range(frame_count):
-        frame_path = directory / f"{prefix}{i:04d}.png"
-        if not frame_path.exists():
-            raise FileNotFoundError(f"Missing animation frame: {frame_path}")
-        frames.append(load_image(frame_path, size))
-    return frames
-
-
-# ------------------------------------------------------------
-# ID Generator
-# ------------------------------------------------------------
-class UniqueIdGenerator:
-    def __init__(self, start: int = 1):
-        self._next_id = max(1, start)
-
-    def next_id(self) -> int:
-        value = self._next_id
-        self._next_id += 1
-        return value
 
 
 # ------------------------------------------------------------
@@ -515,7 +490,7 @@ class World:
 
 
 # ------------------------------------------------------------
-# Painter
+# Paint
 # ------------------------------------------------------------
 @dataclass
 class AnimalVisual:
@@ -526,25 +501,53 @@ class AnimalVisual:
 
 
 class Painter:
-    def __init__(
-        self,
-        sheep_animation_frames: list[pygame.Surface],
-        wolf_animation_frames: list[pygame.Surface],
-    ):
-        self.sheep_animation_frames = sheep_animation_frames
-        self.wolf_animation_frames = wolf_animation_frames
+    def __init__(self):
+        self.sheep_animation_frames = Painter.load_animation_frames(
+            SHEEP_ANIM_DIR,
+            "sheep",
+            SHEEP_SCALE,
+            ANIM_FRAME_COUNT,
+        )
+        self.wolf_animation_frames = Painter.load_animation_frames(
+            WOLF_ANIM_DIR,
+            "wolf",
+            WOLF_SCALE,
+            ANIM_FRAME_COUNT,
+        )
         self.visuals_by_id: dict[int, AnimalVisual] = {}
+
+    @staticmethod
+    def load_image(path: Path, size: int) -> pygame.Surface:
+        surface = pygame.image.load(path.as_posix()).convert_alpha()
+        return pygame.transform.smoothscale(surface, (size, size))
+
+    @staticmethod
+    def load_animation_frames(
+        directory: Path, prefix: str, size: int, frame_count: int
+    ) -> list[pygame.Surface]:
+        frames: list[pygame.Surface] = []
+        for i in range(frame_count):
+            frame_path = directory / f"{prefix}{i:04d}.png"
+            if not frame_path.exists():
+                raise FileNotFoundError(f"Missing animation frame: {frame_path}")
+            frames.append(Painter.load_image(frame_path, size))
+        return frames
 
     @staticmethod
     def _velocity_to_display_angle(vel: Vector2) -> float:
         return math.degrees(math.atan2(-vel.x, vel.y))
+
+    @staticmethod
+    def angle_diff_deg(current: float, target: float) -> float:
+        """Smallest signed angular difference from current to target."""
+        return (target - current + 180.0) % 360.0 - 180.0
 
     def _ensure_visual(self, agent: Agent) -> AnimalVisual:
         visual = self.visuals_by_id.get(agent.id)
         if visual is not None:
             return visual
 
-        initial = self._velocity_to_display_angle(agent.vel)
+        initial = Painter._velocity_to_display_angle(agent.vel)
         visual = AnimalVisual(
             display_angle=initial,
             target_angle=initial,
@@ -558,8 +561,8 @@ class Painter:
         visual = self._ensure_visual(agent)
 
         if agent.vel.length_squared() > 1e-6:
-            new_target = self._velocity_to_display_angle(agent.vel)
-            if abs(angle_diff_deg(visual.target_angle, new_target)) > 1e-3:
+            new_target = Painter._velocity_to_display_angle(agent.vel)
+            if abs(Painter.angle_diff_deg(visual.target_angle, new_target)) > 1e-3:
                 visual.turn_start_angle = visual.display_angle
                 visual.target_angle = new_target
                 visual.turn_elapsed = 0.0
@@ -570,7 +573,7 @@ class Painter:
         elif visual.turn_elapsed < TURN_DURATION_SEC:
             visual.turn_elapsed = min(TURN_DURATION_SEC, visual.turn_elapsed + dt)
             progress = visual.turn_elapsed / TURN_DURATION_SEC
-            delta = angle_diff_deg(visual.turn_start_angle, visual.target_angle)
+            delta = Painter.angle_diff_deg(visual.turn_start_angle, visual.target_angle)
             visual.display_angle = visual.turn_start_angle + delta * progress
         else:
             visual.display_angle = visual.target_angle
@@ -758,21 +761,8 @@ def main() -> None:
     font = pygame.font.SysFont("consolas", 18)
     small_font = pygame.font.SysFont("consolas", 15)
 
-    sheep_animation_frames = load_animation_frames(
-        SHEEP_ANIM_DIR,
-        "sheep",
-        SHEEP_SCALE,
-        ANIM_FRAME_COUNT,
-    )
-    wolf_animation_frames = load_animation_frames(
-        WOLF_ANIM_DIR,
-        "wolf",
-        WOLF_SCALE,
-        ANIM_FRAME_COUNT,
-    )
-
     world = World()
-    painter = Painter(sheep_animation_frames, wolf_animation_frames)
+    painter = Painter()
 
     panel_rect = pygame.Rect(0, 0, PANEL_WIDTH, HEIGHT)
     world_rect = pygame.Rect(PANEL_WIDTH, 0, WIDTH, HEIGHT)
