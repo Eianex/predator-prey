@@ -2,7 +2,6 @@ import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
 
 import pygame
 from pygame.math import Vector2
@@ -52,39 +51,6 @@ SHEEP_GRAPH_COLOR = (188, 246, 166)
 WOLF_GRAPH_COLOR = (246, 148, 120)
 GRAPH_TIME_WINDOW_SEC = 60.0
 GRAPH_SAMPLE_INTERVAL_SEC = 0.12
-
-
-# ------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------
-class UniqueIdGenerator:
-    def __init__(self, start: int = 1):
-        self._next_id = max(1, start)
-
-    def next_id(self) -> int:
-        value = self._next_id
-        self._next_id += 1
-        return value
-
-
-def bounce_in_bounds(
-    pos: Vector2, vel: Vector2, radius: float, width: int, height: int
-) -> tuple[Vector2, Vector2]:
-    if pos.x < radius:
-        pos.x = radius
-        vel.x *= -1
-    elif pos.x > width - radius:
-        pos.x = width - radius
-        vel.x *= -1
-
-    if pos.y < radius:
-        pos.y = radius
-        vel.y *= -1
-    elif pos.y > height - radius:
-        pos.y = height - radius
-        vel.y *= -1
-
-    return pos, vel
 
 
 # ------------------------------------------------------------
@@ -250,52 +216,11 @@ Agent = Sheep | Wolf
 
 
 # ------------------------------------------------------------
-# Collision Contracts
-# ------------------------------------------------------------
-class CollidableAnimal(Protocol):
-    id: int
-    pos: Vector2
-    vel: Vector2
-    base_radius: float
-    speed: float
-
-
-def elastic_collision_response(
-    a: CollidableAnimal,
-    b: CollidableAnimal,
-    normal: Vector2,
-    dist: float,
-    min_dist: float,
-) -> None:
-    overlap = min_dist - dist
-    if overlap > 0.0:
-        correction = normal * (overlap * 0.5)
-        a.pos -= correction
-        b.pos += correction
-
-        a.pos, a.vel = bounce_in_bounds(a.pos, a.vel, a.base_radius, WIDTH, HEIGHT)
-        b.pos, b.vel = bounce_in_bounds(b.pos, b.vel, b.base_radius, WIDTH, HEIGHT)
-
-    va_n = a.vel.dot(normal)
-    vb_n = b.vel.dot(normal)
-
-    if va_n - vb_n > 0.0:
-        a.vel += (vb_n - va_n) * normal
-        b.vel += (va_n - vb_n) * normal
-
-        if a.vel.length_squared() > 1e-6:
-            a.vel = a.vel.normalize() * a.speed
-
-        if b.vel.length_squared() > 1e-6:
-            b.vel = b.vel.normalize() * b.speed
-
-
-# ------------------------------------------------------------
 # World
 # ------------------------------------------------------------
 class World:
     def __init__(self):
-        self.id_generator = UniqueIdGenerator(start=1)
+        self._next_id = 1
         self.sheep_by_id: dict[int, Sheep] = {}
         self.wolf_by_id: dict[int, Wolf] = {}
         self.grass_by_id: dict[int, object] = {}
@@ -329,8 +254,64 @@ class World:
             self.wolf_by_id[wid] = wolf
             self.motion_frame_by_id[wid] = random.uniform(0.0, float(ANIM_FRAME_COUNT))
 
+    @staticmethod
+    def bounce_in_bounds(
+        pos: Vector2, vel: Vector2, radius: float, width: int, height: int
+    ) -> tuple[Vector2, Vector2]:
+        if pos.x < radius:
+            pos.x = radius
+            vel.x *= -1
+        elif pos.x > width - radius:
+            pos.x = width - radius
+            vel.x *= -1
+
+        if pos.y < radius:
+            pos.y = radius
+            vel.y *= -1
+        elif pos.y > height - radius:
+            pos.y = height - radius
+            vel.y *= -1
+
+        return pos, vel
+
+    @staticmethod
+    def elastic_collision_response(
+        a: Agent,
+        b: Agent,
+        normal: Vector2,
+        dist: float,
+        min_dist: float,
+    ) -> None:
+        overlap = min_dist - dist
+        if overlap > 0.0:
+            correction = normal * (overlap * 0.5)
+            a.pos -= correction
+            b.pos += correction
+
+            a.pos, a.vel = World.bounce_in_bounds(
+                a.pos, a.vel, a.base_radius, WIDTH, HEIGHT
+            )
+            b.pos, b.vel = World.bounce_in_bounds(
+                b.pos, b.vel, b.base_radius, WIDTH, HEIGHT
+            )
+
+        va_n = a.vel.dot(normal)
+        vb_n = b.vel.dot(normal)
+
+        if va_n - vb_n > 0.0:
+            a.vel += (vb_n - va_n) * normal
+            b.vel += (va_n - vb_n) * normal
+
+            if a.vel.length_squared() > 1e-6:
+                a.vel = a.vel.normalize() * a.speed
+
+            if b.vel.length_squared() > 1e-6:
+                b.vel = b.vel.normalize() * b.speed
+
     def allocate_id(self) -> int:
-        return self.id_generator.next_id()
+        value = self._next_id
+        self._next_id += 1
+        return value
 
     def all_agents(self) -> list[Agent]:
         return [*self.sheep_by_id.values(), *self.wolf_by_id.values()]
@@ -343,7 +324,7 @@ class World:
 
     def spawn_sheep(self, sheep: Sheep) -> None:
         if self.can_spawn_sheep():
-            sheep.pos, sheep.vel = bounce_in_bounds(
+            sheep.pos, sheep.vel = self.bounce_in_bounds(
                 sheep.pos, sheep.vel, sheep.base_radius, WIDTH, HEIGHT
             )
             self.pending_sheep_births.append(sheep)
@@ -408,7 +389,7 @@ class World:
         for agent in self.all_agents():
             scale = self._displacement_scale(agent)
             agent.move(dt, scale)
-            agent.pos, agent.vel = bounce_in_bounds(
+            agent.pos, agent.vel = self.bounce_in_bounds(
                 agent.pos, agent.vel, agent.base_radius, WIDTH, HEIGHT
             )
             self._advance_motion_frame(agent, dt)
@@ -445,7 +426,7 @@ class World:
                     dist = math.sqrt(dist_sq)
                     normal = delta / dist
 
-                elastic_collision_response(a, b, normal, dist, min_dist)
+                self.elastic_collision_response(a, b, normal, dist, min_dist)
 
     def _act_agents(self, dt: float) -> None:
         for wolf in list(self.wolf_by_id.values()):
