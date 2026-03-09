@@ -10,7 +10,7 @@ from pygame.math import Vector2
 # ------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------
-WIDTH, HEIGHT = 800, 800
+WIDTH, HEIGHT = 1000, 800
 FPS = 60
 BG_COLOR = (78, 145, 68)
 
@@ -23,12 +23,12 @@ ANIM_FRAME_COUNT = 120
 ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 
-NUM_SHEEP = 25
-NUM_WOLVES = 3
+NUM_SHEEP = 50
+NUM_WOLVES = 2
 MAX_SHEEP = 160
 
 SHEEP_SCALE = 50
-WOLF_SCALE = 50
+WOLF_SCALE = 70
 
 SHEEP_SPEED = 100.0
 WOLF_SPEED = 200.0
@@ -39,6 +39,16 @@ SHEEP_STEP_SPEED_MULT_COMPRESS = 2 - SHEEP_STEP_SPEED_MULT_EXPAND
 WOLF_STEP_SPEED_MULT_EXPAND = 0.8
 WOLF_STEP_SPEED_MULT_COMPRESS = 2 - WOLF_STEP_SPEED_MULT_EXPAND
 SHEEP_REPRODUCTION_COOLDOWN_SEC = 5.0
+
+# Left metrics panel
+PANEL_WIDTH = 320
+PANEL_BG_COLOR = (22, 28, 30)
+PANEL_BORDER_COLOR = (70, 86, 90)
+GRAPH_BG_COLOR = (16, 21, 24)
+SHEEP_GRAPH_COLOR = (188, 246, 166)
+WOLF_GRAPH_COLOR = (246, 148, 120)
+GRAPH_TIME_WINDOW_SEC = 60.0
+GRAPH_SAMPLE_INTERVAL_SEC = 0.12
 
 
 # ------------------------------------------------------------
@@ -213,7 +223,7 @@ class Sheep:
         initial_reproduction_cooldown: float = 0.0,
     ):
         self.animation_frames = animation_frames
-        self.motor: MovementMotor = motor if motor is not None else StraightLineMotor()
+        self.motor: MovementMotor = motor if motor is not None else RandomWalkMotor()
 
         self.speed = speed
         self.step_expand = step_expand
@@ -300,19 +310,19 @@ class Sheep:
         if self.reproduction_cooldown > 0.0:
             self.reproduction_cooldown = max(0.0, self.reproduction_cooldown - dt)
 
-    def draw(self, screen: pygame.Surface) -> None:
+    def draw(self, screen: pygame.Surface, x_offset: int = 0) -> None:
         frame_index = int(self.anim_frame_cursor) % len(self.animation_frames)
         base_image = self.animation_frames[frame_index]
 
         render_angle = -self.display_angle
         rotated = pygame.transform.rotozoom(base_image, render_angle, 1.0)
-        rect = rotated.get_rect(center=(self.pos.x, self.pos.y))
+        rect = rotated.get_rect(center=(self.pos.x + x_offset, self.pos.y))
         screen.blit(rotated, rect)
 
         heading_angle_rad = math.radians(render_angle)
         direction = Vector2(math.sin(heading_angle_rad), math.cos(heading_angle_rad))
-        line_start = self.pos
-        line_end = self.pos + direction * (self.base_radius + 18)
+        line_start = Vector2(self.pos.x + x_offset, self.pos.y)
+        line_end = line_start + direction * (self.base_radius + 18)
         pygame.draw.line(
             screen,
             (245, 245, 245),
@@ -416,19 +426,19 @@ class Wolf:
                 self.animation_frames
             )
 
-    def draw(self, screen: pygame.Surface) -> None:
+    def draw(self, screen: pygame.Surface, x_offset: int = 0) -> None:
         frame_index = int(self.anim_frame_cursor) % len(self.animation_frames)
         base_image = self.animation_frames[frame_index]
 
         render_angle = -self.display_angle
         rotated = pygame.transform.rotozoom(base_image, render_angle, 1.0)
-        rect = rotated.get_rect(center=(self.pos.x, self.pos.y))
+        rect = rotated.get_rect(center=(self.pos.x + x_offset, self.pos.y))
         screen.blit(rotated, rect)
 
         heading_angle_rad = math.radians(render_angle)
         direction = Vector2(math.sin(heading_angle_rad), math.cos(heading_angle_rad))
-        line_start = self.pos
-        line_end = self.pos + direction * (self.base_radius + 18)
+        line_start = Vector2(self.pos.x + x_offset, self.pos.y)
+        line_end = line_start + direction * (self.base_radius + 18)
         pygame.draw.line(
             screen,
             (245, 245, 245),
@@ -436,6 +446,121 @@ class Wolf:
             (line_end.x, line_end.y),
             2,
         )
+
+
+# ------------------------------------------------------------
+# Population Graph Panel
+# ------------------------------------------------------------
+class PopulationGraph:
+    def __init__(
+        self,
+        rect: pygame.Rect,
+        label: str,
+        color: tuple[int, int, int],
+        initial_value: int,
+    ):
+        self.rect = rect
+        self.label = label
+        self.color = color
+        self.samples: list[tuple[float, float]] = [(0.0, float(initial_value))]
+        self.display_latest = float(initial_value)
+        self.display_y_max = max(10.0, float(initial_value) + 3.0)
+
+    def add_sample(self, time_sec: float, value: int) -> None:
+        self.samples.append((time_sec, float(value)))
+        cutoff = time_sec - GRAPH_TIME_WINDOW_SEC - 1.0
+        while len(self.samples) > 2 and self.samples[1][0] < cutoff:
+            self.samples.pop(0)
+
+    def update(self, dt: float, current_time_sec: float) -> None:
+        target_value = self.samples[-1][1]
+        alpha = min(1.0, dt * 6.0)
+        self.display_latest += (target_value - self.display_latest) * alpha
+
+        cutoff = current_time_sec - GRAPH_TIME_WINDOW_SEC
+        visible = [v for (t, v) in self.samples if t >= cutoff]
+        if not visible:
+            visible = [target_value]
+        target_max = max(5.0, max(max(visible), self.display_latest) * 1.15)
+        max_alpha = min(1.0, dt * 3.0)
+        self.display_y_max += (target_max - self.display_y_max) * max_alpha
+
+    def draw(
+        self,
+        surface: pygame.Surface,
+        title_font: pygame.font.Font,
+        small_font: pygame.font.Font,
+        current_time_sec: float,
+    ) -> None:
+        pygame.draw.rect(surface, GRAPH_BG_COLOR, self.rect, border_radius=10)
+        pygame.draw.rect(
+            surface, PANEL_BORDER_COLOR, self.rect, width=1, border_radius=10
+        )
+
+        title = title_font.render(self.label, True, (225, 236, 230))
+        value = small_font.render(
+            f"Current: {int(round(self.samples[-1][1]))}", True, self.color
+        )
+        surface.blit(title, (self.rect.x + 12, self.rect.y + 8))
+        surface.blit(value, (self.rect.x + 12, self.rect.y + 30))
+
+        plot_rect = pygame.Rect(
+            self.rect.x + 12,
+            self.rect.y + 56,
+            self.rect.width - 24,
+            self.rect.height - 72,
+        )
+
+        # Axes and grid
+        for i in range(5):
+            gy = plot_rect.y + int(i * (plot_rect.height / 4))
+            pygame.draw.line(
+                surface, (45, 58, 61), (plot_rect.x, gy), (plot_rect.right, gy), 1
+            )
+        pygame.draw.rect(surface, (70, 86, 90), plot_rect, width=1)
+
+        cutoff = current_time_sec - GRAPH_TIME_WINDOW_SEC
+
+        # Build visible polyline points
+        visible: list[tuple[float, float]] = []
+        prev_sample: tuple[float, float] | None = None
+        for sample in self.samples:
+            if sample[0] < cutoff:
+                prev_sample = sample
+                continue
+            if prev_sample is not None and not visible:
+                # Add a boundary anchor for smoother entering line.
+                visible.append((cutoff, prev_sample[1]))
+            visible.append(sample)
+
+        if not visible:
+            visible = [(current_time_sec, self.samples[-1][1])]
+
+        y_max = max(1.0, self.display_y_max)
+
+        def to_screen(t: float, v: float) -> tuple[int, int]:
+            tx = (t - cutoff) / GRAPH_TIME_WINDOW_SEC
+            tx = max(0.0, min(1.0, tx))
+            ty = max(0.0, min(1.0, v / y_max))
+            x = plot_rect.x + int(tx * plot_rect.width)
+            y = plot_rect.bottom - int(ty * plot_rect.height)
+            return x, y
+
+        if len(visible) >= 2:
+            pts = [to_screen(t, v) for (t, v) in visible]
+            pygame.draw.lines(surface, self.color, False, pts, 2)
+
+        # Smooth latest dot at right edge
+        dot_x = plot_rect.right
+        dot_y = plot_rect.bottom - int(
+            max(0.0, min(1.0, self.display_latest / y_max)) * plot_rect.height
+        )
+        pygame.draw.circle(surface, self.color, (dot_x, dot_y), 5)
+
+        max_label = small_font.render(f"{int(round(y_max))}", True, (150, 165, 168))
+        zero_label = small_font.render("0", True, (150, 165, 168))
+        surface.blit(max_label, (plot_rect.x + 4, plot_rect.y + 2))
+        surface.blit(zero_label, (plot_rect.x + 4, plot_rect.bottom - 16))
 
 
 # ------------------------------------------------------------
@@ -530,9 +655,12 @@ def resolve_interactions(
 def main() -> None:
     pygame.init()
     pygame.display.set_caption("Wolf-Sheep Prototype")
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+
+    total_width = WIDTH + PANEL_WIDTH
+    screen = pygame.display.set_mode((total_width, HEIGHT))
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("consolas", 18)
+    small_font = pygame.font.SysFont("consolas", 15)
 
     sheep_animation_frames = load_animation_frames(
         SHEEP_ANIM_DIR,
@@ -555,9 +683,35 @@ def main() -> None:
         for _ in range(NUM_WOLVES)
     ]
 
+    panel_rect = pygame.Rect(0, 0, PANEL_WIDTH, HEIGHT)
+    world_rect = pygame.Rect(PANEL_WIDTH, 0, WIDTH, HEIGHT)
+
+    margin = 14
+    gap = 12
+    graph_height = (HEIGHT - margin * 2 - gap) // 2
+    sheep_graph = PopulationGraph(
+        pygame.Rect(margin, margin, PANEL_WIDTH - margin * 2, graph_height),
+        "Sheep Population",
+        SHEEP_GRAPH_COLOR,
+        len(sheep_flock),
+    )
+    wolf_graph = PopulationGraph(
+        pygame.Rect(
+            margin, margin + graph_height + gap, PANEL_WIDTH - margin * 2, graph_height
+        ),
+        "Wolf Population",
+        WOLF_GRAPH_COLOR,
+        len(wolf_pack),
+    )
+
+    sim_time = 0.0
+    sample_accum = 0.0
+
     running = True
     while running:
         dt = clock.tick(FPS) / 1000.0
+        sim_time += dt
+        sample_accum += dt
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -572,19 +726,39 @@ def main() -> None:
 
         resolve_interactions(sheep_flock, wolf_pack, sheep_animation_frames)
 
+        # Feed graph history on a fixed cadence to keep lines readable.
+        while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
+            sample_accum -= GRAPH_SAMPLE_INTERVAL_SEC
+            sheep_graph.add_sample(sim_time, len(sheep_flock))
+            wolf_graph.add_sample(sim_time, len(wolf_pack))
+
+        sheep_graph.update(dt, sim_time)
+        wolf_graph.update(dt, sim_time)
+
         all_animals = [*sheep_flock, *wolf_pack]
 
-        screen.fill(BG_COLOR)
+        # Draw split layout
+        screen.fill((0, 0, 0))
+        pygame.draw.rect(screen, PANEL_BG_COLOR, panel_rect)
+        pygame.draw.rect(screen, BG_COLOR, world_rect)
+        pygame.draw.line(
+            screen,
+            PANEL_BORDER_COLOR,
+            (PANEL_WIDTH, 0),
+            (PANEL_WIDTH, HEIGHT),
+            2,
+        )
+
+        sheep_graph.draw(screen, font, small_font, sim_time)
+        wolf_graph.draw(screen, font, small_font, sim_time)
 
         for animal in all_animals:
-            animal.draw(screen)
+            animal.draw(screen, x_offset=PANEL_WIDTH)
 
-        fps_text = font.render(f"FPS: {clock.get_fps():5.1f}", True, (240, 245, 240))
-        sheep_text = font.render(f"Sheep: {len(sheep_flock)}", True, (240, 245, 240))
-        wolf_text = font.render(f"Wolves: {len(wolf_pack)}", True, (240, 245, 240))
-        screen.blit(fps_text, (12, 10))
-        screen.blit(sheep_text, (12, 32))
-        screen.blit(wolf_text, (12, 54))
+        fps_text = small_font.render(
+            f"FPS: {clock.get_fps():5.1f}", True, (220, 230, 225)
+        )
+        screen.blit(fps_text, (12, HEIGHT - 24))
 
         pygame.display.flip()
 
