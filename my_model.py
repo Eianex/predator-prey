@@ -129,7 +129,7 @@ class StraightLineMotor:
             new_vel = vel.normalize() * speed
 
         new_pos = pos + new_vel * dt * displacement_scale
-        return bounce_in_bounds(new_pos, new_vel, radius, WIDTH, HEIGHT)
+        return new_pos, new_vel
 
 
 class RandomWalkMotor:
@@ -161,7 +161,7 @@ class RandomWalkMotor:
 
         new_vel = heading * speed
         new_pos = pos + new_vel * dt * displacement_scale
-        return bounce_in_bounds(new_pos, new_vel, radius, WIDTH, HEIGHT)
+        return new_pos, new_vel
 
 
 # ------------------------------------------------------------
@@ -298,6 +298,9 @@ class Sheep:
             self.base_radius,
             displacement_scale,
         )
+        self.pos, self.vel = bounce_in_bounds(
+            self.pos, self.vel, self.base_radius, WIDTH, HEIGHT
+        )
 
         self.retarget_orientation()
         self.update_orientation(dt)
@@ -416,6 +419,9 @@ class Wolf:
             dt,
             self.base_radius,
             displacement_scale,
+        )
+        self.pos, self.vel = bounce_in_bounds(
+            self.pos, self.vel, self.base_radius, WIDTH, HEIGHT
         )
 
         self.retarget_orientation()
