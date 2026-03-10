@@ -841,35 +841,36 @@ def main() -> None:
 
     sim_time = 0.0
     sample_accum = 0.0
+    paused = False
+    pause_button_rect = pygame.Rect(total_width - 118, 10, 108, 30)
 
     running = True
     while running:
-        dt = clock.tick(FPS) / 1000.0
-        sim_time += dt
-        sample_accum += dt
-
+        frame_dt = clock.tick(FPS) / 1000.0
+        step_dt = 0.0 if paused else frame_dt
+        sim_time += step_dt
+        sample_accum += step_dt
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
-            elif (
-                SHOW_GRAPHS
-                and event.type == pygame.MOUSEBUTTONDOWN
-                and event.button == 1
-            ):
-                if sheep_graph is not None and sheep_graph.is_save_button_clicked(
-                    event.pos
-                ):
-                    recorder.save_sheep()
-                    sheep_graph.mark_saved()
-                elif wolf_graph is not None and wolf_graph.is_save_button_clicked(
-                    event.pos
-                ):
-                    recorder.save_wolf()
-                    wolf_graph.mark_saved()
-
-        world.step(dt)
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if pause_button_rect.collidepoint(event.pos):
+                    paused = not paused
+                elif SHOW_GRAPHS:
+                    if sheep_graph is not None and sheep_graph.is_save_button_clicked(
+                        event.pos
+                    ):
+                        recorder.save_sheep()
+                        sheep_graph.mark_saved()
+                    elif wolf_graph is not None and wolf_graph.is_save_button_clicked(
+                        event.pos
+                    ):
+                        recorder.save_wolf()
+                        wolf_graph.mark_saved()
+        if not paused:
+            world.step(step_dt)
 
         # Feed history on a fixed cadence.
         while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
@@ -883,8 +884,8 @@ def main() -> None:
                 wolf_graph.add_sample(sim_time, wolf_count)
 
         if sheep_graph is not None and wolf_graph is not None:
-            sheep_graph.update(dt, sim_time)
-            wolf_graph.update(dt, sim_time)
+            sheep_graph.update(frame_dt, sim_time)
+            wolf_graph.update(frame_dt, sim_time)
 
         # Draw layout
         screen.fill((0, 0, 0))
@@ -904,13 +905,23 @@ def main() -> None:
         else:
             pygame.draw.rect(screen, BG_COLOR, world_rect)
 
-        painter.draw(screen, world, dt, x_offset=world_x_offset)
+        painter.draw(screen, world, step_dt, x_offset=world_x_offset)
 
         fps_x = 12 if SHOW_GRAPHS else world_x_offset + 12
         fps_text = small_font.render(
             f"FPS: {clock.get_fps():5.1f}", True, (220, 230, 225)
         )
         screen.blit(fps_text, (fps_x, HEIGHT - 24))
+
+        pause_label = "Continue" if paused else "Pause"
+        pause_bg = (142, 88, 76) if paused else (74, 108, 80)
+        pygame.draw.rect(screen, pause_bg, pause_button_rect, border_radius=8)
+        pygame.draw.rect(
+            screen, (220, 230, 225), pause_button_rect, width=1, border_radius=8
+        )
+        pause_text = small_font.render(pause_label, True, (245, 245, 245))
+        pause_text_rect = pause_text.get_rect(center=pause_button_rect.center)
+        screen.blit(pause_text, pause_text_rect)
 
         pygame.display.flip()
 
