@@ -1,6 +1,5 @@
 import math
 import random
-import csv
 import time
 from pathlib import Path
 
@@ -8,6 +7,7 @@ from pygame.math import Vector2
 
 from motors import MovementMotor, RandomWalkMotor, StraightLineMotor
 from paint import SimulationGUI
+from recorder import PopulationRecorder
 
 try:
     import msvcrt
@@ -50,9 +50,6 @@ GRAPH_SAMPLE_INTERVAL_SEC = 0.12
 SAVE_TO_FILE = False
 SHOW_GRAPHS = True
 HEADLESS = False
-SHEEP_CSV_PATH = Path("data_sheep.csv")
-WOLF_CSV_PATH = Path("data_wolf.csv")
-GRASS_CSV_PATH = Path("data_grass.csv")
 
 
 # ------------------------------------------------------------
@@ -461,69 +458,10 @@ class World:
         self.apply_pending_changes()
 
 
-# ------------------------------------------------------------
-# Population Graph Panel
-# ------------------------------------------------------------
-class PopulationRecorder:
-    def __init__(
-        self,
-        initial_time: float,
-        sheep_count: int,
-        wolf_count: int,
-        grass_count: int,
-    ):
-        self.sheep_samples: list[tuple[float, float]] = [
-            (initial_time, float(sheep_count))
-        ]
-        self.wolf_samples: list[tuple[float, float]] = [
-            (initial_time, float(wolf_count))
-        ]
-        self.grass_samples: list[tuple[float, float]] = [
-            (initial_time, float(grass_count))
-        ]
-
-    def add_sample(
-        self, time_sec: float, sheep_count: int, wolf_count: int, grass_count: int
-    ) -> None:
-        self.sheep_samples.append((time_sec, float(sheep_count)))
-        self.wolf_samples.append((time_sec, float(wolf_count)))
-        self.grass_samples.append((time_sec, float(grass_count)))
-
-    @staticmethod
-    def _write_csv(path: Path, samples: list[tuple[float, float]]) -> None:
-        with path.open("w", newline="", encoding="utf-8") as csv_file:
-            writer = csv.writer(csv_file)
-            writer.writerow(["time_sec", "population"])
-            for t, v in samples:
-                writer.writerow([f"{t:.6f}", int(round(v))])
-
-    def save_sheep(self) -> None:
-        PopulationRecorder._write_csv(SHEEP_CSV_PATH, self.sheep_samples)
-
-    def save_wolf(self) -> None:
-        PopulationRecorder._write_csv(WOLF_CSV_PATH, self.wolf_samples)
-
-    def save_grass(self) -> None:
-        PopulationRecorder._write_csv(GRASS_CSV_PATH, self.grass_samples)
-
-    def save_all(self) -> None:
-        self.save_sheep()
-        self.save_wolf()
-        self.save_grass()
-
-
-# ------------------------------------------------------------
-# Main loop
-# ------------------------------------------------------------
-
-
 def main() -> None:
     world = World()
     recorder = PopulationRecorder(
-        0.0,
-        len(world.sheep_by_id),
-        len(world.wolf_by_id),
-        len(world.grass_by_id),
+        0.0, len(world.sheep_by_id), len(world.wolf_by_id), len(world.grass_by_id)
     )
     if HEADLESS:
         print("Headless mode running. Press 'q' (or ESC) in this console to stop.")
