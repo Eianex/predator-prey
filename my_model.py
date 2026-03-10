@@ -530,84 +530,83 @@ def _headless_stop_requested() -> bool:
     return key.lower() == "q" or key == "\x1b"
 
 
-def run_headless(world: World, recorder: PopulationRecorder) -> None:
-    print("Headless mode running. Press 'q' (or ESC) in this console to stop.")
+def run(world: World, recorder: PopulationRecorder) -> None:
+    if HEADLESS:
+        print("Headless mode running. Press 'q' (or ESC) in this console to stop.")
 
-    sim_time = 0.0
-    sample_accum = 0.0
-    last_time = time.perf_counter()
+        sim_time = 0.0
+        sample_accum = 0.0
+        last_time = time.perf_counter()
 
-    while True:
-        if _headless_stop_requested():
-            break
+        while True:
+            if _headless_stop_requested():
+                break
 
-        now = time.perf_counter()
-        dt = now - last_time
-        last_time = now
-        if dt <= 0.0:
-            dt = 1.0 / FPS
+            now = time.perf_counter()
+            dt = now - last_time
+            last_time = now
+            if dt <= 0.0:
+                dt = 1.0 / FPS
 
-        world.step(dt)
-        sim_time += dt
-        sample_accum += dt
+            world.step(dt)
+            sim_time += dt
+            sample_accum += dt
 
-        while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
-            sample_accum -= GRAPH_SAMPLE_INTERVAL_SEC
-            recorder.add_sample(
-                sim_time,
-                len(world.sheep_by_id),
-                len(world.wolf_by_id),
-                len(world.grass_by_id),
-            )
+            while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
+                sample_accum -= GRAPH_SAMPLE_INTERVAL_SEC
+                recorder.add_sample(
+                    sim_time,
+                    len(world.sheep_by_id),
+                    len(world.wolf_by_id),
+                    len(world.grass_by_id),
+                )
 
-        time.sleep(0.001)
+            time.sleep(0.001)
+    else:
+        gui = SimulationGUI(
+            width=WIDTH,
+            height=HEIGHT,
+            fps=FPS,
+            show_graphs=SHOW_GRAPHS,
+            sheep_anim_dir=SHEEP_ANIM_DIR,
+            wolf_anim_dir=WOLF_ANIM_DIR,
+            sheep_scale=SHEEP_SCALE,
+            wolf_scale=WOLF_SCALE,
+            anim_frame_count=ANIM_FRAME_COUNT,
+            turn_duration_sec=TURN_DURATION_SEC,
+            initial_sheep_count=len(world.sheep_by_id),
+            initial_wolf_count=len(world.wolf_by_id),
+            on_save_sheep=recorder.save_sheep,
+            on_save_wolf=recorder.save_wolf,
+        )
 
+        sim_time = 0.0
+        sample_accum = 0.0
 
-def run_with_gui(world: World, recorder: PopulationRecorder) -> None:
-    gui = SimulationGUI(
-        width=WIDTH,
-        height=HEIGHT,
-        fps=FPS,
-        show_graphs=SHOW_GRAPHS,
-        sheep_anim_dir=SHEEP_ANIM_DIR,
-        wolf_anim_dir=WOLF_ANIM_DIR,
-        sheep_scale=SHEEP_SCALE,
-        wolf_scale=WOLF_SCALE,
-        anim_frame_count=ANIM_FRAME_COUNT,
-        turn_duration_sec=TURN_DURATION_SEC,
-        initial_sheep_count=len(world.sheep_by_id),
-        initial_wolf_count=len(world.wolf_by_id),
-        on_save_sheep=recorder.save_sheep,
-        on_save_wolf=recorder.save_wolf,
-    )
+        running = True
+        while running:
+            frame_dt = gui.tick()
+            running = gui.handle_events()
 
-    sim_time = 0.0
-    sample_accum = 0.0
+            step_dt = 0.0 if gui.paused else frame_dt
+            if step_dt > 0.0:
+                world.step(step_dt)
 
-    running = True
-    while running:
-        frame_dt = gui.tick()
-        running = gui.handle_events()
+            sim_time += step_dt
+            sample_accum += step_dt
 
-        step_dt = 0.0 if gui.paused else frame_dt
-        if step_dt > 0.0:
-            world.step(step_dt)
+            while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
+                sample_accum -= GRAPH_SAMPLE_INTERVAL_SEC
+                sheep_count = len(world.sheep_by_id)
+                wolf_count = len(world.wolf_by_id)
+                grass_count = len(world.grass_by_id)
+                recorder.add_sample(sim_time, sheep_count, wolf_count, grass_count)
+                gui.add_population_sample(sim_time, sheep_count, wolf_count)
 
-        sim_time += step_dt
-        sample_accum += step_dt
+            gui.update(frame_dt)
+            gui.draw(world, sim_time, step_dt)
 
-        while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
-            sample_accum -= GRAPH_SAMPLE_INTERVAL_SEC
-            sheep_count = len(world.sheep_by_id)
-            wolf_count = len(world.wolf_by_id)
-            grass_count = len(world.grass_by_id)
-            recorder.add_sample(sim_time, sheep_count, wolf_count, grass_count)
-            gui.add_population_sample(sim_time, sheep_count, wolf_count)
-
-        gui.update(frame_dt)
-        gui.draw(world, sim_time, step_dt)
-
-    gui.close()
+        gui.close()
 
 
 def main() -> None:
@@ -618,11 +617,7 @@ def main() -> None:
         len(world.wolf_by_id),
         len(world.grass_by_id),
     )
-
-    if HEADLESS:
-        run_headless(world, recorder)
-    else:
-        run_with_gui(world, recorder)
+    run(world, recorder)
 
     if SAVE_TO_FILE:
         recorder.save_all()
