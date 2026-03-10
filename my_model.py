@@ -515,19 +515,6 @@ class PopulationRecorder:
 # ------------------------------------------------------------
 # Main loop
 # ------------------------------------------------------------
-def _headless_stop_requested() -> bool:
-    if msvcrt is None:
-        return False
-    if not msvcrt.kbhit():
-        return False
-
-    key = msvcrt.getwch()
-    if key in ("\x00", "\xe0"):
-        if msvcrt.kbhit():
-            msvcrt.getwch()
-        return False
-
-    return key.lower() == "q" or key == "\x1b"
 
 
 def main() -> None:
@@ -544,6 +531,20 @@ def main() -> None:
         sim_time = 0.0
         sample_accum = 0.0
         last_time = time.perf_counter()
+
+        def _headless_stop_requested() -> bool:
+            if msvcrt is None:
+                return False
+            if not msvcrt.kbhit():
+                return False
+
+            key = msvcrt.getwch()
+            if key in ("\x00", "\xe0"):
+                if msvcrt.kbhit():
+                    msvcrt.getwch()
+                return False
+
+            return key.lower() == "q" or key == "\x1b"
 
         while True:
             if _headless_stop_requested():
