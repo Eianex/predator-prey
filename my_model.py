@@ -1,7 +1,6 @@
 import math
 import random
 import time
-from pathlib import Path
 
 from pygame.math import Vector2
 
@@ -15,11 +14,6 @@ from recorder import PopulationRecorder
 # ------------------------------------------------------------
 WIDTH, HEIGHT = 1000, 800
 FPS = 60
-
-ASSET_DIR = Path("img")
-ANIM_DIR = ASSET_DIR / "animation"
-SHEEP_ANIM_DIR = ANIM_DIR / "sheep"
-WOLF_ANIM_DIR = ANIM_DIR / "wolf"
 
 ANIM_FRAME_COUNT = 120
 ANIM_CYCLE_SEC = 0.5
@@ -35,7 +29,6 @@ WOLF_SCALE = 70
 SHEEP_SPEED = 100.0
 WOLF_SPEED = 200.0
 
-TURN_DURATION_SEC = 0.5
 SHEEP_STEP_SPEED_MULT_EXPAND = 0.8
 SHEEP_STEP_SPEED_MULT_COMPRESS = 2 - SHEEP_STEP_SPEED_MULT_EXPAND
 WOLF_STEP_SPEED_MULT_EXPAND = 0.8
@@ -44,7 +37,6 @@ SHEEP_REPRODUCTION_COOLDOWN_SEC = 4.0
 
 GRAPH_SAMPLE_INTERVAL_SEC = 0.12
 SAVE_TO_FILE = False
-SHOW_GRAPHS = True
 HEADLESS = False
 
 
@@ -495,13 +487,8 @@ def main() -> None:
             width=WIDTH,
             height=HEIGHT,
             fps=FPS,
-            show_graphs=SHOW_GRAPHS,
-            sheep_anim_dir=SHEEP_ANIM_DIR,
-            wolf_anim_dir=WOLF_ANIM_DIR,
             sheep_scale=SHEEP_SCALE,
             wolf_scale=WOLF_SCALE,
-            anim_frame_count=ANIM_FRAME_COUNT,
-            turn_duration_sec=TURN_DURATION_SEC,
             initial_sheep_count=len(world.sheep_by_id),
             initial_wolf_count=len(world.wolf_by_id),
             on_save_sheep=recorder.save_sheep,

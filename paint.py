@@ -15,6 +15,13 @@ SHEEP_GRAPH_COLOR = (188, 246, 166)
 WOLF_GRAPH_COLOR = (246, 148, 120)
 WORLD_BG_COLOR = (78, 145, 68)
 
+ASSET_DIR = Path("img")
+ANIM_DIR = ASSET_DIR / "animation"
+SHEEP_ANIM_DIR = ANIM_DIR / "sheep"
+WOLF_ANIM_DIR = ANIM_DIR / "wolf"
+TURN_DURATION_SEC = 0.5
+SHOW_GRAPHS = True
+
 
 @dataclass
 class AnimalVisual:
@@ -27,25 +34,19 @@ class AnimalVisual:
 class Painter:
     def __init__(
         self,
-        sheep_anim_dir: Path,
-        wolf_anim_dir: Path,
         sheep_scale: int,
         wolf_scale: int,
-        anim_frame_count: int,
-        turn_duration_sec: float,
     ):
-        self.turn_duration_sec = turn_duration_sec
+        self.turn_duration_sec = TURN_DURATION_SEC
         self.sheep_animation_frames = Painter.load_animation_frames(
-            sheep_anim_dir,
+            SHEEP_ANIM_DIR,
             "sheep",
             sheep_scale,
-            anim_frame_count,
         )
         self.wolf_animation_frames = Painter.load_animation_frames(
-            wolf_anim_dir,
+            WOLF_ANIM_DIR,
             "wolf",
             wolf_scale,
-            anim_frame_count,
         )
         self.visuals_by_id: dict[int, AnimalVisual] = {}
 
@@ -56,14 +57,16 @@ class Painter:
 
     @staticmethod
     def load_animation_frames(
-        directory: Path, prefix: str, size: int, frame_count: int
+        directory: Path, prefix: str, size: int
     ) -> list[pygame.Surface]:
         frames: list[pygame.Surface] = []
-        for i in range(frame_count):
-            frame_path = directory / f"{prefix}{i:04d}.png"
-            if not frame_path.exists():
-                raise FileNotFoundError(f"Missing animation frame: {frame_path}")
+        frame_paths = sorted(directory.glob(f"{prefix}[0-9][0-9][0-9][0-9].png"))
+        for frame_path in frame_paths:
             frames.append(Painter.load_image(frame_path, size))
+        if len(frames) == 0:
+            raise FileNotFoundError(
+                f"No animation frames found in {directory} for prefix '{prefix}'"
+            )
         return frames
 
     @staticmethod
@@ -288,13 +291,8 @@ class SimulationGUI:
         width: int,
         height: int,
         fps: int,
-        show_graphs: bool,
-        sheep_anim_dir: Path,
-        wolf_anim_dir: Path,
         sheep_scale: int,
         wolf_scale: int,
-        anim_frame_count: int,
-        turn_duration_sec: float,
         initial_sheep_count: int,
         initial_wolf_count: int,
         on_save_sheep: Callable[[], None],
@@ -306,9 +304,9 @@ class SimulationGUI:
         self.width = width
         self.height = height
         self.fps = fps
-        self.show_graphs = show_graphs
-        self.total_width = width + PANEL_WIDTH if show_graphs else width
-        self.world_x_offset = PANEL_WIDTH if show_graphs else 0
+        self.show_graphs = SHOW_GRAPHS
+        self.total_width = width + PANEL_WIDTH if self.show_graphs else width
+        self.world_x_offset = PANEL_WIDTH if self.show_graphs else 0
 
         self.screen = pygame.display.set_mode((self.total_width, self.height))
         self.clock = pygame.time.Clock()
@@ -324,12 +322,8 @@ class SimulationGUI:
         self.on_save_wolf = on_save_wolf
 
         self.painter = Painter(
-            sheep_anim_dir,
-            wolf_anim_dir,
             sheep_scale,
             wolf_scale,
-            anim_frame_count,
-            turn_duration_sec,
         )
 
         self.sheep_graph: PopulationGraph | None = None
