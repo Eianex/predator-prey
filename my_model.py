@@ -1,5 +1,6 @@
 import math
 import random
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +52,12 @@ SHEEP_GRAPH_COLOR = (188, 246, 166)
 WOLF_GRAPH_COLOR = (246, 148, 120)
 GRAPH_TIME_WINDOW_SEC = 60.0
 GRAPH_SAMPLE_INTERVAL_SEC = 0.12
+SAVE_TO_FILE = False
+SHOW_GRAPHS = True
+
+SHEEP_CSV_PATH = Path("data_sheep.csv")
+WOLF_CSV_PATH = Path("data_wolf.csv")
+GRASS_CSV_PATH = Path("data_grass.csv")
 
 
 # ------------------------------------------------------------
@@ -606,6 +613,54 @@ class Painter:
 # ------------------------------------------------------------
 # Population Graph Panel
 # ------------------------------------------------------------
+class PopulationRecorder:
+    def __init__(
+        self,
+        initial_time: float,
+        sheep_count: int,
+        wolf_count: int,
+        grass_count: int,
+    ):
+        self.sheep_samples: list[tuple[float, float]] = [
+            (initial_time, float(sheep_count))
+        ]
+        self.wolf_samples: list[tuple[float, float]] = [
+            (initial_time, float(wolf_count))
+        ]
+        self.grass_samples: list[tuple[float, float]] = [
+            (initial_time, float(grass_count))
+        ]
+
+    def add_sample(
+        self, time_sec: float, sheep_count: int, wolf_count: int, grass_count: int
+    ) -> None:
+        self.sheep_samples.append((time_sec, float(sheep_count)))
+        self.wolf_samples.append((time_sec, float(wolf_count)))
+        self.grass_samples.append((time_sec, float(grass_count)))
+
+    @staticmethod
+    def _write_csv(path: Path, samples: list[tuple[float, float]]) -> None:
+        with path.open("w", newline="", encoding="utf-8") as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(["time_sec", "population"])
+            for t, v in samples:
+                writer.writerow([f"{t:.6f}", int(round(v))])
+
+    def save_sheep(self) -> None:
+        PopulationRecorder._write_csv(SHEEP_CSV_PATH, self.sheep_samples)
+
+    def save_wolf(self) -> None:
+        PopulationRecorder._write_csv(WOLF_CSV_PATH, self.wolf_samples)
+
+    def save_grass(self) -> None:
+        PopulationRecorder._write_csv(GRASS_CSV_PATH, self.grass_samples)
+
+    def save_all(self) -> None:
+        self.save_sheep()
+        self.save_wolf()
+        self.save_grass()
+
+
 class PopulationGraph:
     def __init__(
         self,
@@ -620,9 +675,19 @@ class PopulationGraph:
         self.samples: list[tuple[float, float]] = [(0.0, float(initial_value))]
         self.display_latest = float(initial_value)
         self.display_y_max = max(10.0, float(initial_value) + 3.0)
+        self.save_button_rect = pygame.Rect(
+            self.rect.right - 96, self.rect.y + 8, 84, 22
+        )
+        self.save_flash_timer = 0.0
 
     def add_sample(self, time_sec: float, value: int) -> None:
         self.samples.append((time_sec, float(value)))
+
+    def mark_saved(self) -> None:
+        self.save_flash_timer = 1.0
+
+    def is_save_button_clicked(self, mouse_pos: tuple[int, int]) -> bool:
+        return self.save_button_rect.collidepoint(mouse_pos)
 
     def update(self, dt: float, current_time_sec: float) -> None:
         target_value = self.samples[-1][1]
@@ -635,6 +700,9 @@ class PopulationGraph:
         target_max = max(5.0, max(max(visible), self.display_latest) * 1.15)
         max_alpha = min(1.0, dt * 3.0)
         self.display_y_max += (target_max - self.display_y_max) * max_alpha
+
+        if self.save_flash_timer > 0.0:
+            self.save_flash_timer = max(0.0, self.save_flash_timer - dt)
 
     def draw(
         self,
@@ -654,6 +722,24 @@ class PopulationGraph:
         )
         surface.blit(title, (self.rect.x + 12, self.rect.y + 8))
         surface.blit(value, (self.rect.x + 12, self.rect.y + 30))
+
+        if self.save_flash_timer > 0.0:
+            btn_color = (66, 120, 70)
+            btn_label = "Saved"
+        else:
+            btn_color = (47, 62, 66)
+            btn_label = "Save CSV"
+        pygame.draw.rect(surface, btn_color, self.save_button_rect, border_radius=6)
+        pygame.draw.rect(
+            surface,
+            (120, 140, 145),
+            self.save_button_rect,
+            width=1,
+            border_radius=6,
+        )
+        btn_text = small_font.render(btn_label, True, (225, 236, 230))
+        btn_rect = btn_text.get_rect(center=self.save_button_rect.center)
+        surface.blit(btn_text, btn_rect)
 
         plot_rect = pygame.Rect(
             self.rect.x + 12,
@@ -709,7 +795,7 @@ def main() -> None:
     pygame.init()
     pygame.display.set_caption("Wolf-Sheep Prototype")
 
-    total_width = WIDTH + PANEL_WIDTH
+    total_width = WIDTH + PANEL_WIDTH if SHOW_GRAPHS else WIDTH
     screen = pygame.display.set_mode((total_width, HEIGHT))
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("consolas", 18)
@@ -717,27 +803,41 @@ def main() -> None:
 
     world = World()
     painter = Painter()
+    recorder = PopulationRecorder(
+        0.0,
+        len(world.sheep_by_id),
+        len(world.wolf_by_id),
+        len(world.grass_by_id),
+    )
 
     panel_rect = pygame.Rect(0, 0, PANEL_WIDTH, HEIGHT)
-    world_rect = pygame.Rect(PANEL_WIDTH, 0, WIDTH, HEIGHT)
+    world_x_offset = PANEL_WIDTH if SHOW_GRAPHS else 0
+    world_rect = pygame.Rect(world_x_offset, 0, WIDTH, HEIGHT)
 
-    margin = 14
-    gap = 12
-    graph_height = (HEIGHT - margin * 2 - gap) // 2
-    sheep_graph = PopulationGraph(
-        pygame.Rect(margin, margin, PANEL_WIDTH - margin * 2, graph_height),
-        "Sheep Population",
-        SHEEP_GRAPH_COLOR,
-        len(world.sheep_by_id),
-    )
-    wolf_graph = PopulationGraph(
-        pygame.Rect(
-            margin, margin + graph_height + gap, PANEL_WIDTH - margin * 2, graph_height
-        ),
-        "Wolf Population",
-        WOLF_GRAPH_COLOR,
-        len(world.wolf_by_id),
-    )
+    sheep_graph: PopulationGraph | None = None
+    wolf_graph: PopulationGraph | None = None
+
+    if SHOW_GRAPHS:
+        margin = 14
+        gap = 12
+        graph_height = (HEIGHT - margin * 2 - gap) // 2
+        sheep_graph = PopulationGraph(
+            pygame.Rect(margin, margin, PANEL_WIDTH - margin * 2, graph_height),
+            "Sheep Population",
+            SHEEP_GRAPH_COLOR,
+            len(world.sheep_by_id),
+        )
+        wolf_graph = PopulationGraph(
+            pygame.Rect(
+                margin,
+                margin + graph_height + gap,
+                PANEL_WIDTH - margin * 2,
+                graph_height,
+            ),
+            "Wolf Population",
+            WOLF_GRAPH_COLOR,
+            len(world.wolf_by_id),
+        )
 
     sim_time = 0.0
     sample_accum = 0.0
@@ -753,41 +853,69 @@ def main() -> None:
                 running = False
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
+            elif (
+                SHOW_GRAPHS
+                and event.type == pygame.MOUSEBUTTONDOWN
+                and event.button == 1
+            ):
+                if sheep_graph is not None and sheep_graph.is_save_button_clicked(
+                    event.pos
+                ):
+                    recorder.save_sheep()
+                    sheep_graph.mark_saved()
+                elif wolf_graph is not None and wolf_graph.is_save_button_clicked(
+                    event.pos
+                ):
+                    recorder.save_wolf()
+                    wolf_graph.mark_saved()
 
         world.step(dt)
 
-        # Feed graph history on a fixed cadence to keep lines readable.
+        # Feed history on a fixed cadence.
         while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
             sample_accum -= GRAPH_SAMPLE_INTERVAL_SEC
-            sheep_graph.add_sample(sim_time, len(world.sheep_by_id))
-            wolf_graph.add_sample(sim_time, len(world.wolf_by_id))
+            sheep_count = len(world.sheep_by_id)
+            wolf_count = len(world.wolf_by_id)
+            grass_count = len(world.grass_by_id)
+            recorder.add_sample(sim_time, sheep_count, wolf_count, grass_count)
+            if sheep_graph is not None and wolf_graph is not None:
+                sheep_graph.add_sample(sim_time, sheep_count)
+                wolf_graph.add_sample(sim_time, wolf_count)
 
-        sheep_graph.update(dt, sim_time)
-        wolf_graph.update(dt, sim_time)
+        if sheep_graph is not None and wolf_graph is not None:
+            sheep_graph.update(dt, sim_time)
+            wolf_graph.update(dt, sim_time)
 
-        # Draw split layout
+        # Draw layout
         screen.fill((0, 0, 0))
-        pygame.draw.rect(screen, PANEL_BG_COLOR, panel_rect)
-        pygame.draw.rect(screen, BG_COLOR, world_rect)
-        pygame.draw.line(
-            screen,
-            PANEL_BORDER_COLOR,
-            (PANEL_WIDTH, 0),
-            (PANEL_WIDTH, HEIGHT),
-            2,
-        )
+        if SHOW_GRAPHS:
+            pygame.draw.rect(screen, PANEL_BG_COLOR, panel_rect)
+            pygame.draw.rect(screen, BG_COLOR, world_rect)
+            pygame.draw.line(
+                screen,
+                PANEL_BORDER_COLOR,
+                (PANEL_WIDTH, 0),
+                (PANEL_WIDTH, HEIGHT),
+                2,
+            )
+            if sheep_graph is not None and wolf_graph is not None:
+                sheep_graph.draw(screen, font, small_font, sim_time)
+                wolf_graph.draw(screen, font, small_font, sim_time)
+        else:
+            pygame.draw.rect(screen, BG_COLOR, world_rect)
 
-        sheep_graph.draw(screen, font, small_font, sim_time)
-        wolf_graph.draw(screen, font, small_font, sim_time)
+        painter.draw(screen, world, dt, x_offset=world_x_offset)
 
-        painter.draw(screen, world, dt, x_offset=PANEL_WIDTH)
-
+        fps_x = 12 if SHOW_GRAPHS else world_x_offset + 12
         fps_text = small_font.render(
             f"FPS: {clock.get_fps():5.1f}", True, (220, 230, 225)
         )
-        screen.blit(fps_text, (12, HEIGHT - 24))
+        screen.blit(fps_text, (fps_x, HEIGHT - 24))
 
         pygame.display.flip()
+
+    if SAVE_TO_FILE:
+        recorder.save_all()
 
     pygame.quit()
 
