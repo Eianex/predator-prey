@@ -40,7 +40,7 @@ SHEEP_STEP_SPEED_MULT_EXPAND = 0.8
 SHEEP_STEP_SPEED_MULT_COMPRESS = 2 - SHEEP_STEP_SPEED_MULT_EXPAND
 WOLF_STEP_SPEED_MULT_EXPAND = 0.8
 WOLF_STEP_SPEED_MULT_COMPRESS = 2 - WOLF_STEP_SPEED_MULT_EXPAND
-SHEEP_REPRODUCTION_COOLDOWN_SEC = 5.0
+SHEEP_REPRODUCTION_COOLDOWN_SEC = 4.0
 
 # Left metrics panel
 PANEL_WIDTH = 320
@@ -229,7 +229,6 @@ class World:
 
         self.pending_sheep_births: list[Sheep] = []
         self.pending_dead_ids: set[int] = set()
-
 
         for _ in range(NUM_SHEEP):
             sid = self.allocate_id()
@@ -624,17 +623,13 @@ class PopulationGraph:
 
     def add_sample(self, time_sec: float, value: int) -> None:
         self.samples.append((time_sec, float(value)))
-        cutoff = time_sec - GRAPH_TIME_WINDOW_SEC - 1.0
-        while len(self.samples) > 2 and self.samples[1][0] < cutoff:
-            self.samples.pop(0)
 
     def update(self, dt: float, current_time_sec: float) -> None:
         target_value = self.samples[-1][1]
         alpha = min(1.0, dt * 6.0)
         self.display_latest += (target_value - self.display_latest) * alpha
 
-        cutoff = current_time_sec - GRAPH_TIME_WINDOW_SEC
-        visible = [v for (t, v) in self.samples if t >= cutoff]
+        visible = [v for (_, v) in self.samples]
         if not visible:
             visible = [target_value]
         target_max = max(5.0, max(max(visible), self.display_latest) * 1.15)
@@ -675,27 +670,15 @@ class PopulationGraph:
             )
         pygame.draw.rect(surface, (70, 86, 90), plot_rect, width=1)
 
-        cutoff = current_time_sec - GRAPH_TIME_WINDOW_SEC
-
-        # Build visible polyline points
-        visible: list[tuple[float, float]] = []
-        prev_sample: tuple[float, float] | None = None
-        for sample in self.samples:
-            if sample[0] < cutoff:
-                prev_sample = sample
-                continue
-            if prev_sample is not None and not visible:
-                # Add a boundary anchor for smoother entering line.
-                visible.append((cutoff, prev_sample[1]))
-            visible.append(sample)
-
+        visible = self.samples
         if not visible:
             visible = [(current_time_sec, self.samples[-1][1])]
 
         y_max = max(1.0, self.display_y_max)
+        total_time = max(current_time_sec, visible[-1][0], 1e-6)
 
         def to_screen(t: float, v: float) -> tuple[int, int]:
-            tx = (t - cutoff) / GRAPH_TIME_WINDOW_SEC
+            tx = t / total_time
             tx = max(0.0, min(1.0, tx))
             ty = max(0.0, min(1.0, v / y_max))
             x = plot_rect.x + int(tx * plot_rect.width)
