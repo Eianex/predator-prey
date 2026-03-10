@@ -78,6 +78,7 @@ class Sheep:
             Vector2(math.cos(initial_angle), math.sin(initial_angle)) * self.speed
         )
         self.base_radius = scale * 0.38
+        self.motion_frame = random.uniform(0.0, float(ANIM_FRAME_COUNT))
 
     def move(self, dt: float, displacement_scale: float) -> None:
         self.pos, self.vel = self.motor.advance(
@@ -172,6 +173,7 @@ class Wolf:
             Vector2(math.cos(initial_angle), math.sin(initial_angle)) * self.speed
         )
         self.base_radius = scale * 0.38
+        self.motion_frame = random.uniform(0.0, float(ANIM_FRAME_COUNT))
 
     def move(self, dt: float, displacement_scale: float) -> None:
         self.pos, self.vel = self.motor.advance(
@@ -228,7 +230,6 @@ class World:
         self.pending_sheep_births: list[Sheep] = []
         self.pending_dead_ids: set[int] = set()
 
-        self.motion_frame_by_id: dict[int, float] = {}
 
         for _ in range(NUM_SHEEP):
             sid = self.allocate_id()
@@ -240,7 +241,6 @@ class World:
                 scale=SHEEP_SCALE,
             )
             self.sheep_by_id[sid] = sheep
-            self.motion_frame_by_id[sid] = random.uniform(0.0, float(ANIM_FRAME_COUNT))
 
         for _ in range(NUM_WOLVES):
             wid = self.allocate_id()
@@ -252,7 +252,6 @@ class World:
                 scale=WOLF_SCALE,
             )
             self.wolf_by_id[wid] = wolf
-            self.motion_frame_by_id[wid] = random.uniform(0.0, float(ANIM_FRAME_COUNT))
 
     @staticmethod
     def bounce_in_bounds(
@@ -360,14 +359,11 @@ class World:
                 nearby.append(wolf)
         return nearby
 
-    def get_motion_frame(self, agent_id: int) -> float:
-        return self.motion_frame_by_id.get(agent_id, 0.0)
-
     def _displacement_scale(self, agent: Agent) -> float:
         if agent.vel.length_squared() < 1e-6:
             return 0.0
 
-        frame = self.motion_frame_by_id.get(agent.id, 0.0)
+        frame = agent.motion_frame
         cycle_phase = (frame % ANIM_FRAME_COUNT) / ANIM_FRAME_COUNT
 
         if isinstance(agent, Sheep):
@@ -382,8 +378,7 @@ class World:
     def _advance_motion_frame(self, agent: Agent, dt: float) -> None:
         if agent.vel.length_squared() < 1e-6:
             return
-        current = self.motion_frame_by_id.get(agent.id, 0.0)
-        self.motion_frame_by_id[agent.id] = (current + ANIM_FPS * dt) % ANIM_FRAME_COUNT
+        agent.motion_frame = (agent.motion_frame + ANIM_FPS * dt) % ANIM_FRAME_COUNT
 
     def _move_agents(self, dt: float) -> None:
         for agent in self.all_agents():
@@ -447,7 +442,6 @@ class World:
             wolf = self.wolf_by_id.pop(dead_id, None)
             if wolf is not None:
                 wolf.die()
-            self.motion_frame_by_id.pop(dead_id, None)
         self.pending_dead_ids.clear()
 
         if self.pending_sheep_births:
@@ -457,10 +451,6 @@ class World:
                 if len(self.sheep_by_id) >= MAX_SHEEP:
                     break
                 self.sheep_by_id[child.id] = child
-                if child.id not in self.motion_frame_by_id:
-                    self.motion_frame_by_id[child.id] = random.uniform(
-                        0.0, float(ANIM_FRAME_COUNT)
-                    )
             self.pending_sheep_births.clear()
 
     def step(self, dt: float) -> None:
@@ -579,7 +569,7 @@ class Painter:
         if len(frames) == 0:
             return
 
-        frame_cursor = world.get_motion_frame(agent.id)
+        frame_cursor = agent.motion_frame
         frame_index = int(frame_cursor) % len(frames)
         base_image = frames[frame_index]
 
