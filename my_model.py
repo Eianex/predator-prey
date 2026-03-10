@@ -9,10 +9,6 @@ from motors import MovementMotor, RandomWalkMotor, StraightLineMotor
 from paint import SimulationGUI
 from recorder import PopulationRecorder
 
-try:
-    import msvcrt
-except ImportError:
-    msvcrt = None
 
 # ------------------------------------------------------------
 # Configuration
@@ -464,50 +460,36 @@ def main() -> None:
         0.0, len(world.sheep_by_id), len(world.wolf_by_id), len(world.grass_by_id)
     )
     if HEADLESS:
-        print("Headless mode running. Press 'q' (or ESC) in this console to stop.")
+        print("Headless mode running. Press Ctrl+C in this console to stop.")
 
         sim_time = 0.0
         sample_accum = 0.0
         last_time = time.perf_counter()
 
-        def _headless_stop_requested() -> bool:
-            if msvcrt is None:
-                return False
-            if not msvcrt.kbhit():
-                return False
+        try:
+            while True:
+                now = time.perf_counter()
+                dt = now - last_time
+                last_time = now
+                if dt <= 0.0:
+                    dt = 1.0 / FPS
 
-            key = msvcrt.getwch()
-            if key in ("\x00", "\xe0"):
-                if msvcrt.kbhit():
-                    msvcrt.getwch()
-                return False
+                world.step(dt)
+                sim_time += dt
+                sample_accum += dt
 
-            return key.lower() == "q" or key == "\x1b"
+                while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
+                    sample_accum -= GRAPH_SAMPLE_INTERVAL_SEC
+                    recorder.add_sample(
+                        sim_time,
+                        len(world.sheep_by_id),
+                        len(world.wolf_by_id),
+                        len(world.grass_by_id),
+                    )
 
-        while True:
-            if _headless_stop_requested():
-                break
-
-            now = time.perf_counter()
-            dt = now - last_time
-            last_time = now
-            if dt <= 0.0:
-                dt = 1.0 / FPS
-
-            world.step(dt)
-            sim_time += dt
-            sample_accum += dt
-
-            while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
-                sample_accum -= GRAPH_SAMPLE_INTERVAL_SEC
-                recorder.add_sample(
-                    sim_time,
-                    len(world.sheep_by_id),
-                    len(world.wolf_by_id),
-                    len(world.grass_by_id),
-                )
-
-            time.sleep(0.001)
+                time.sleep(0.001)
+        except KeyboardInterrupt:
+            pass
     else:
         gui = SimulationGUI(
             width=WIDTH,
