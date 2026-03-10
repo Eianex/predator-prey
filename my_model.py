@@ -530,7 +530,14 @@ def _headless_stop_requested() -> bool:
     return key.lower() == "q" or key == "\x1b"
 
 
-def run(world: World, recorder: PopulationRecorder) -> None:
+def main() -> None:
+    world = World()
+    recorder = PopulationRecorder(
+        0.0,
+        len(world.sheep_by_id),
+        len(world.wolf_by_id),
+        len(world.grass_by_id),
+    )
     if HEADLESS:
         print("Headless mode running. Press 'q' (or ESC) in this console to stop.")
 
@@ -607,17 +614,6 @@ def run(world: World, recorder: PopulationRecorder) -> None:
             gui.draw(world, sim_time, step_dt)
 
         gui.close()
-
-
-def main() -> None:
-    world = World()
-    recorder = PopulationRecorder(
-        0.0,
-        len(world.sheep_by_id),
-        len(world.wolf_by_id),
-        len(world.grass_by_id),
-    )
-    run(world, recorder)
 
     if SAVE_TO_FILE:
         recorder.save_all()
