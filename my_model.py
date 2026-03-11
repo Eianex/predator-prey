@@ -32,7 +32,9 @@ WOLF_SPEED = 200.0
 PLANT_SCALE = SHEEP_SCALE
 PLANT_GROWTH_SEC = 5.0
 PLANT_REPRODUCTION_PERIOD_SEC = 5.0
-PLANT_SPREAD_OFFSET = PLANT_SCALE * 0.5
+PLANT_REPRODUCTION_RADIUS = PLANT_SCALE
+PLANT_NEARBY_RADIUS_MULT = 1.01
+PLANT_NEARBY_LIMIT = 5
 PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.0008
 INITIAL_PLANTS = 18
 
@@ -96,15 +98,21 @@ class Sheep:
         if self.id in world.pending_dead_ids:
             return
 
-        search_radius = self.base_radius + (PLANT_SCALE * 0.38)
+        # Circle (sheep) against axis-aligned square (grass).
+        half_grass_size = PLANT_SCALE * 0.5
+        search_radius = self.base_radius + (half_grass_size * math.sqrt(2.0))
         nearby = world.get_nearby_grass(self.pos, search_radius)
         for plant in nearby:
             if plant.id in world.pending_dead_ids:
                 continue
             if not plant.is_fully_grown():
                 continue
-            min_dist = self.base_radius + plant.base_radius
-            if (plant.pos - self.pos).length_squared() < min_dist * min_dist:
+            half = plant.scale * 0.5
+            nearest_x = max(plant.pos.x - half, min(self.pos.x, plant.pos.x + half))
+            nearest_y = max(plant.pos.y - half, min(self.pos.y, plant.pos.y + half))
+            dx = self.pos.x - nearest_x
+            dy = self.pos.y - nearest_y
+            if (dx * dx + dy * dy) <= (self.base_radius * self.base_radius):
                 self.eat(plant, world)
                 return
 
@@ -235,7 +243,6 @@ class Plant:
         self.id = plant_id
         self.pos = position
         self.scale = scale
-        self.base_radius = scale * 0.38
         self.age_sec = max(0.0, min(PLANT_GROWTH_SEC, initial_age_sec))
         self.reproduction_timer = PLANT_REPRODUCTION_PERIOD_SEC
         self.is_alive = True
@@ -255,33 +262,21 @@ class Plant:
             self.try_reproduce(world)
 
     def try_reproduce(self, world: "World") -> None:
-        offsets = [
-            Vector2(-PLANT_SPREAD_OFFSET, -PLANT_SPREAD_OFFSET),
-            Vector2(0.0, -PLANT_SPREAD_OFFSET),
-            Vector2(PLANT_SPREAD_OFFSET, -PLANT_SPREAD_OFFSET),
-            Vector2(-PLANT_SPREAD_OFFSET, 0.0),
-            Vector2(PLANT_SPREAD_OFFSET, 0.0),
-            Vector2(-PLANT_SPREAD_OFFSET, PLANT_SPREAD_OFFSET),
-            Vector2(0.0, PLANT_SPREAD_OFFSET),
-            Vector2(PLANT_SPREAD_OFFSET, PLANT_SPREAD_OFFSET),
-        ]
-        random.shuffle(offsets)
-
-        candidate_children = []
-        for offset in offsets:
-            candidate_pos = self.pos + offset
-            child = Plant(
-                plant_id=world.allocate_id(),
-                position=candidate_pos,
-                scale=PLANT_SCALE,
-            )
-            if world.can_place_grass(child):
-                candidate_children.append(child)
-
-        if len(candidate_children) == 0:
+        nearby_radius = PLANT_REPRODUCTION_RADIUS * PLANT_NEARBY_RADIUS_MULT
+        if (
+            world.count_nearby_grass(self.pos, nearby_radius, exclude=self.id)
+            >= PLANT_NEARBY_LIMIT
+        ):
             return
 
-        world.spawn_grass(random.choice(candidate_children))
+        angle = random.uniform(0.0, math.tau)
+        offset = Vector2(math.cos(angle), math.sin(angle)) * PLANT_REPRODUCTION_RADIUS
+        child = Plant(
+            plant_id=world.allocate_id(),
+            position=self.pos + offset,
+            scale=PLANT_SCALE,
+        )
+        world.spawn_grass(child)
 
     def die(self) -> None:
         self.is_alive = False
@@ -415,28 +410,31 @@ class World:
         return len(self.sheep_by_id) + len(self.pending_sheep_births) < MAX_SHEEP
 
     @staticmethod
-    def _is_inside_bounds(pos: Vector2, radius: float) -> bool:
-        return radius <= pos.x <= WIDTH - radius and radius <= pos.y <= HEIGHT - radius
+    def _is_inside_bounds(pos: Vector2, half_size: float) -> bool:
+        return (
+            half_size <= pos.x <= WIDTH - half_size
+            and half_size <= pos.y <= HEIGHT - half_size
+        )
 
     def can_place_grass(self, plant: Plant, exclude: int | None = None) -> bool:
-        if not self._is_inside_bounds(plant.pos, plant.base_radius):
+        half_size = plant.scale * 0.5
+        if not self._is_inside_bounds(plant.pos, half_size):
             return False
 
-        slot_occupancy_dist = max(2.0, PLANT_SPREAD_OFFSET * 0.25)
-        slot_occupancy_dist_sq = slot_occupancy_dist * slot_occupancy_dist
+        same_spot_dist_sq = 1.0
 
         for other in self.grass_by_id.values():
             if exclude is not None and other.id == exclude:
                 continue
             if other.id in self.pending_dead_ids:
                 continue
-            if (other.pos - plant.pos).length_squared() <= slot_occupancy_dist_sq:
+            if (other.pos - plant.pos).length_squared() <= same_spot_dist_sq:
                 return False
 
         for pending in self.pending_grass_births:
             if exclude is not None and pending.id == exclude:
                 continue
-            if (pending.pos - plant.pos).length_squared() <= slot_occupancy_dist_sq:
+            if (pending.pos - plant.pos).length_squared() <= same_spot_dist_sq:
                 return False
 
         return True
@@ -496,6 +494,27 @@ class World:
             if (plant.pos - pos).length_squared() <= radius_sq:
                 nearby.append(plant)
         return nearby
+
+    def count_nearby_grass(
+        self, pos: Vector2, radius: float, exclude: int | None = None
+    ) -> int:
+        radius_sq = radius * radius
+        count = 0
+        for plant in self.grass_by_id.values():
+            if exclude is not None and plant.id == exclude:
+                continue
+            if plant.id in self.pending_dead_ids:
+                continue
+            if (plant.pos - pos).length_squared() <= radius_sq:
+                count += 1
+
+        for plant in self.pending_grass_births:
+            if exclude is not None and plant.id == exclude:
+                continue
+            if (plant.pos - pos).length_squared() <= radius_sq:
+                count += 1
+
+        return count
 
     def _displacement_scale(self, agent: Agent) -> float:
         if agent.vel.length_squared() < 1e-6:
