@@ -633,7 +633,7 @@ class World:
             for child in self.pending_grass_births:
                 if child.id in self.grass_by_id:
                     continue
-                if self.can_place_grass(child):
+                if self.can_place_grass(child, exclude=child.id):
                     self.grass_by_id[child.id] = child
             self.pending_grass_births.clear()
 
