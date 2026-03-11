@@ -19,30 +19,31 @@ ANIM_FRAME_COUNT = 120
 ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 
-NUM_SHEEP = 1
-NUM_WOLVES = 0
-MAX_SHEEP = 160
+NUM_SHEEP = 40
+NUM_WOLVES = 3
+MAX_SHEEP = 100
+INITIAL_PLANTS = 200
 
-SHEEP_SCALE = 50
-WOLF_SCALE = 70
+SHEEP_SCALE = 40
+WOLF_SCALE = 50
 
 SHEEP_SPEED = 100.0
 WOLF_SPEED = 200.0
 
 PLANT_SCALE = SHEEP_SCALE
 PLANT_GROWTH_SEC = 5.0
-PLANT_REPRODUCTION_PERIOD_SEC = 5.0
+PLANT_REPRODUCTION_PERIOD_SEC = 3.0
 PLANT_REPRODUCTION_RADIUS = PLANT_SCALE
 PLANT_NEARBY_RADIUS_MULT = 1.01
-PLANT_NEARBY_LIMIT = 5
-PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.0008
-INITIAL_PLANTS = 18
+PLANT_NEARBY_LIMIT = 4
+PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.001
 
 SHEEP_STEP_SPEED_MULT_EXPAND = 0.8
 SHEEP_STEP_SPEED_MULT_COMPRESS = 2 - SHEEP_STEP_SPEED_MULT_EXPAND
 WOLF_STEP_SPEED_MULT_EXPAND = 0.8
 WOLF_STEP_SPEED_MULT_COMPRESS = 2 - WOLF_STEP_SPEED_MULT_EXPAND
-SHEEP_REPRODUCTION_COOLDOWN_SEC = 4.0
+SHEEP_REPRODUCTION_COOLDOWN_SEC = 3.0
+SHEEP_EAT_COOLDOWN_SEC = 4.0
 
 GRAPH_SAMPLE_INTERVAL_SEC = 0.12
 SAVE_TO_FILE = False
@@ -67,6 +68,7 @@ class Sheep:
         self.speed = speed
         self.pos = position
         self.reproduction_cooldown = max(0.0, initial_reproduction_cooldown)
+        self.eat_cooldown = 0.0
         self.is_alive = True
 
         initial_angle = random.uniform(0.0, math.tau)
@@ -88,6 +90,8 @@ class Sheep:
 
         if self.reproduction_cooldown > 0.0:
             self.reproduction_cooldown = max(0.0, self.reproduction_cooldown - dt)
+        if self.eat_cooldown > 0.0:
+            self.eat_cooldown = max(0.0, self.eat_cooldown - dt)
 
     def act(self, world: "World", dt: float) -> None:
         _ = dt
@@ -96,6 +100,8 @@ class Sheep:
 
     def try_eat_grass(self, world: "World") -> None:
         if self.id in world.pending_dead_ids:
+            return
+        if self.eat_cooldown > 0.0:
             return
 
         # Circle (sheep) against axis-aligned square (grass).
@@ -138,6 +144,7 @@ class Sheep:
 
     def eat(self, target_plant: "Plant", world: "World") -> None:
         world.mark_dead(target_plant)
+        self.eat_cooldown = SHEEP_EAT_COOLDOWN_SEC
 
     def die(self) -> None:
         self.is_alive = False
