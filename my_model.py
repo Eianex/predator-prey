@@ -19,9 +19,10 @@ ANIM_FRAME_COUNT = 120
 ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 
-NUM_SHEEP = 40
+NUM_SHEEP = 70
 NUM_WOLVES = 3
-MAX_SHEEP = 100
+MAX_SHEEP = 110
+MAX_GRASS = 500
 INITIAL_PLANTS = 200
 
 SHEEP_SCALE = 40
@@ -276,8 +277,27 @@ class Plant:
         ):
             return
 
-        angle = random.uniform(0.0, math.tau)
-        offset = Vector2(math.cos(angle), math.sin(angle)) * PLANT_REPRODUCTION_RADIUS
+        nearby = world.get_nearby_grass(self.pos, nearby_radius, exclude=self.id)
+        sum_x = 0.0
+        sum_y = 0.0
+        for plant in nearby:
+            delta = plant.pos - self.pos
+            if delta.length_squared() < 1e-12:
+                continue
+            angle = math.atan2(delta.y, delta.x)
+            sum_x += math.cos(angle)
+            sum_y += math.sin(angle)
+
+        if abs(sum_x) < 1e-12 and abs(sum_y) < 1e-12:
+            cluster_angle = 0.0
+        else:
+            cluster_angle = math.atan2(sum_y, sum_x)
+
+        spawn_angle = (cluster_angle + math.pi) % math.tau
+        offset = (
+            Vector2(math.cos(spawn_angle), math.sin(spawn_angle))
+            * PLANT_REPRODUCTION_RADIUS
+        )
         child = Plant(
             plant_id=world.allocate_id(),
             position=self.pos + offset,
@@ -330,8 +350,9 @@ class World:
 
         planted = 0
         attempts = 0
-        max_attempts = INITIAL_PLANTS * 20
-        while planted < INITIAL_PLANTS and attempts < max_attempts:
+        target_initial_plants = min(INITIAL_PLANTS, MAX_GRASS)
+        max_attempts = target_initial_plants * 20
+        while planted < target_initial_plants and attempts < max_attempts:
             attempts += 1
             pid = self.allocate_id()
             plant = Plant(
@@ -416,6 +437,9 @@ class World:
     def can_spawn_sheep(self) -> bool:
         return len(self.sheep_by_id) + len(self.pending_sheep_births) < MAX_SHEEP
 
+    def can_spawn_grass(self) -> bool:
+        return len(self.grass_by_id) + len(self.pending_grass_births) < MAX_GRASS
+
     @staticmethod
     def _is_inside_bounds(pos: Vector2, half_size: float) -> bool:
         return (
@@ -454,7 +478,7 @@ class World:
             self.pending_sheep_births.append(sheep)
 
     def spawn_grass(self, plant: Plant) -> None:
-        if self.can_place_grass(plant):
+        if self.can_spawn_grass() and self.can_place_grass(plant):
             self.pending_grass_births.append(plant)
 
     def mark_dead(self, entity) -> None:
@@ -640,6 +664,8 @@ class World:
             for child in self.pending_grass_births:
                 if child.id in self.grass_by_id:
                     continue
+                if len(self.grass_by_id) >= MAX_GRASS:
+                    break
                 if self.can_place_grass(child, exclude=child.id):
                     self.grass_by_id[child.id] = child
             self.pending_grass_births.clear()
