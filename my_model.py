@@ -19,8 +19,8 @@ ANIM_FRAME_COUNT = 120
 ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 
-NUM_SHEEP = 50
-NUM_WOLVES = 2
+NUM_SHEEP = 1
+NUM_WOLVES = 0
 MAX_SHEEP = 160
 
 SHEEP_SCALE = 50
@@ -28,6 +28,13 @@ WOLF_SCALE = 70
 
 SHEEP_SPEED = 100.0
 WOLF_SPEED = 200.0
+
+PLANT_SCALE = SHEEP_SCALE
+PLANT_GROWTH_SEC = 5.0
+PLANT_REPRODUCTION_PERIOD_SEC = 5.0
+PLANT_SPREAD_OFFSET = PLANT_SCALE * 0.5
+PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.0008
+INITIAL_PLANTS = 18
 
 SHEEP_STEP_SPEED_MULT_EXPAND = 0.8
 SHEEP_STEP_SPEED_MULT_COMPRESS = 2 - SHEEP_STEP_SPEED_MULT_EXPAND
@@ -82,7 +89,24 @@ class Sheep:
 
     def act(self, world: "World", dt: float) -> None:
         _ = dt
+        self.try_eat_grass(world)
         self.try_reproduce(world)
+
+    def try_eat_grass(self, world: "World") -> None:
+        if self.id in world.pending_dead_ids:
+            return
+
+        search_radius = self.base_radius + (PLANT_SCALE * 0.38)
+        nearby = world.get_nearby_grass(self.pos, search_radius)
+        for plant in nearby:
+            if plant.id in world.pending_dead_ids:
+                continue
+            if not plant.is_fully_grown():
+                continue
+            min_dist = self.base_radius + plant.base_radius
+            if (plant.pos - self.pos).length_squared() < min_dist * min_dist:
+                self.eat(plant, world)
+                return
 
     def try_reproduce(self, world: "World") -> None:
         if not self.can_reproduce() or self.id in world.pending_dead_ids:
@@ -104,9 +128,8 @@ class Sheep:
                 world.spawn_sheep(child)
             return
 
-    def eat(self) -> None:
-        # Sheep currently do not eat other agents.
-        return
+    def eat(self, target_plant: "Plant", world: "World") -> None:
+        world.mark_dead(target_plant)
 
     def die(self) -> None:
         self.is_alive = False
@@ -201,6 +224,64 @@ class Wolf:
         return
 
 
+class Plant:
+    def __init__(
+        self,
+        plant_id: int,
+        position: Vector2,
+        scale: int,
+        initial_age_sec: float = 0.0,
+    ):
+        self.id = plant_id
+        self.pos = position
+        self.scale = scale
+        self.base_radius = scale * 0.38
+        self.age_sec = max(0.0, min(PLANT_GROWTH_SEC, initial_age_sec))
+        self.reproduction_timer = PLANT_REPRODUCTION_PERIOD_SEC
+        self.is_alive = True
+
+    def is_fully_grown(self) -> bool:
+        return self.age_sec >= PLANT_GROWTH_SEC
+
+    def update(self, world: "World", dt: float) -> None:
+        self.age_sec = min(PLANT_GROWTH_SEC, self.age_sec + dt)
+
+        if not self.is_fully_grown():
+            return
+
+        self.reproduction_timer -= dt
+        while self.reproduction_timer <= 0.0:
+            self.reproduction_timer += PLANT_REPRODUCTION_PERIOD_SEC
+            self.try_reproduce(world)
+
+    def try_reproduce(self, world: "World") -> None:
+        offsets = [
+            Vector2(-PLANT_SPREAD_OFFSET, -PLANT_SPREAD_OFFSET),
+            Vector2(0.0, -PLANT_SPREAD_OFFSET),
+            Vector2(PLANT_SPREAD_OFFSET, -PLANT_SPREAD_OFFSET),
+            Vector2(-PLANT_SPREAD_OFFSET, 0.0),
+            Vector2(PLANT_SPREAD_OFFSET, 0.0),
+            Vector2(-PLANT_SPREAD_OFFSET, PLANT_SPREAD_OFFSET),
+            Vector2(0.0, PLANT_SPREAD_OFFSET),
+            Vector2(PLANT_SPREAD_OFFSET, PLANT_SPREAD_OFFSET),
+        ]
+        random.shuffle(offsets)
+
+        for offset in offsets:
+            candidate_pos = self.pos + offset
+            child = Plant(
+                plant_id=world.allocate_id(),
+                position=candidate_pos,
+                scale=PLANT_SCALE,
+            )
+            if world.can_place_grass(child):
+                world.spawn_grass(child)
+                return
+
+    def die(self) -> None:
+        self.is_alive = False
+
+
 Agent = Sheep | Wolf
 
 
@@ -212,9 +293,10 @@ class World:
         self._next_id = 1
         self.sheep_by_id: dict[int, Sheep] = {}
         self.wolf_by_id: dict[int, Wolf] = {}
-        self.grass_by_id: dict[int, object] = {}
+        self.grass_by_id: dict[int, Plant] = {}
 
         self.pending_sheep_births: list[Sheep] = []
+        self.pending_grass_births: list[Plant] = []
         self.pending_dead_ids: set[int] = set()
 
         for _ in range(NUM_SHEEP):
@@ -238,6 +320,22 @@ class World:
                 scale=WOLF_SCALE,
             )
             self.wolf_by_id[wid] = wolf
+
+        planted = 0
+        attempts = 0
+        max_attempts = INITIAL_PLANTS * 20
+        while planted < INITIAL_PLANTS and attempts < max_attempts:
+            attempts += 1
+            pid = self.allocate_id()
+            plant = Plant(
+                plant_id=pid,
+                position=Vector2(random.uniform(0, WIDTH), random.uniform(0, HEIGHT)),
+                scale=PLANT_SCALE,
+                initial_age_sec=random.uniform(0.0, PLANT_GROWTH_SEC),
+            )
+            if self.can_place_grass(plant):
+                self.grass_by_id[pid] = plant
+                planted += 1
 
     @staticmethod
     def bounce_in_bounds(
@@ -302,10 +400,41 @@ class World:
         return [*self.sheep_by_id.values(), *self.wolf_by_id.values()]
 
     def live_ids(self) -> set[int]:
-        return set(self.sheep_by_id.keys()) | set(self.wolf_by_id.keys())
+        return (
+            set(self.sheep_by_id.keys())
+            | set(self.wolf_by_id.keys())
+            | set(self.grass_by_id.keys())
+        )
 
     def can_spawn_sheep(self) -> bool:
         return len(self.sheep_by_id) + len(self.pending_sheep_births) < MAX_SHEEP
+
+    def can_place_grass(self, plant: Plant, exclude: int | None = None) -> bool:
+        if (
+            plant.pos.x < plant.base_radius
+            or plant.pos.x > WIDTH - plant.base_radius
+            or plant.pos.y < plant.base_radius
+            or plant.pos.y > HEIGHT - plant.base_radius
+        ):
+            return False
+
+        for other in self.grass_by_id.values():
+            if exclude is not None and other.id == exclude:
+                continue
+            if other.id in self.pending_dead_ids:
+                continue
+            min_dist = plant.base_radius + other.base_radius
+            if (other.pos - plant.pos).length_squared() < min_dist * min_dist:
+                return False
+
+        for pending in self.pending_grass_births:
+            if exclude is not None and pending.id == exclude:
+                continue
+            min_dist = plant.base_radius + pending.base_radius
+            if (pending.pos - plant.pos).length_squared() < min_dist * min_dist:
+                return False
+
+        return True
 
     def spawn_sheep(self, sheep: Sheep) -> None:
         if self.can_spawn_sheep():
@@ -314,8 +443,12 @@ class World:
             )
             self.pending_sheep_births.append(sheep)
 
-    def mark_dead(self, agent: Agent) -> None:
-        self.pending_dead_ids.add(agent.id)
+    def spawn_grass(self, plant: Plant) -> None:
+        if self.can_place_grass(plant):
+            self.pending_grass_births.append(plant)
+
+    def mark_dead(self, entity) -> None:
+        self.pending_dead_ids.add(entity.id)
 
     def get_nearby_sheep(
         self, pos: Vector2, radius: float, exclude: int | None = None
@@ -343,6 +476,20 @@ class World:
                 continue
             if (wolf.pos - pos).length_squared() <= radius_sq:
                 nearby.append(wolf)
+        return nearby
+
+    def get_nearby_grass(
+        self, pos: Vector2, radius: float, exclude: int | None = None
+    ) -> list[Plant]:
+        radius_sq = radius * radius
+        nearby: list[Plant] = []
+        for plant in self.grass_by_id.values():
+            if exclude is not None and plant.id == exclude:
+                continue
+            if plant.id in self.pending_dead_ids:
+                continue
+            if (plant.pos - pos).length_squared() <= radius_sq:
+                nearby.append(plant)
         return nearby
 
     def _displacement_scale(self, agent: Agent) -> float:
@@ -386,8 +533,6 @@ class World:
                 if b.id in self.pending_dead_ids:
                     continue
 
-                # Sheep and wolves should not bounce off each other.
-                # Wolf-sheep interaction is handled by agent action logic (eating).
                 if (isinstance(a, Sheep) and isinstance(b, Wolf)) or (
                     isinstance(a, Wolf) and isinstance(b, Sheep)
                 ):
@@ -420,6 +565,24 @@ class World:
                 continue
             sheep.act(self, dt)
 
+    def _update_grass(self, dt: float) -> None:
+        for plant in list(self.grass_by_id.values()):
+            if plant.id in self.pending_dead_ids:
+                continue
+            plant.update(self, dt)
+
+    def _try_random_grass_spawn(self, dt: float) -> None:
+        chance = PLANT_RANDOM_SPAWN_CHANCE_PER_SEC * dt
+        if random.random() >= chance:
+            return
+
+        plant = Plant(
+            plant_id=self.allocate_id(),
+            position=Vector2(random.uniform(0, WIDTH), random.uniform(0, HEIGHT)),
+            scale=PLANT_SCALE,
+        )
+        self.spawn_grass(plant)
+
     def apply_pending_changes(self) -> None:
         for dead_id in list(self.pending_dead_ids):
             sheep = self.sheep_by_id.pop(dead_id, None)
@@ -428,6 +591,9 @@ class World:
             wolf = self.wolf_by_id.pop(dead_id, None)
             if wolf is not None:
                 wolf.die()
+            plant = self.grass_by_id.pop(dead_id, None)
+            if plant is not None:
+                plant.die()
         self.pending_dead_ids.clear()
 
         if self.pending_sheep_births:
@@ -439,10 +605,20 @@ class World:
                 self.sheep_by_id[child.id] = child
             self.pending_sheep_births.clear()
 
+        if self.pending_grass_births:
+            for child in self.pending_grass_births:
+                if child.id in self.grass_by_id:
+                    continue
+                if self.can_place_grass(child):
+                    self.grass_by_id[child.id] = child
+            self.pending_grass_births.clear()
+
     def step(self, dt: float) -> None:
         self._move_agents(dt)
         self._resolve_physics_collisions()
         self._act_agents(dt)
+        self._update_grass(dt)
+        self._try_random_grass_spawn(dt)
         self.apply_pending_changes()
 
 

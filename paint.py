@@ -19,7 +19,9 @@ ASSET_DIR = Path("img")
 ANIM_DIR = ASSET_DIR / "animation"
 SHEEP_ANIM_DIR = ANIM_DIR / "sheep"
 WOLF_ANIM_DIR = ANIM_DIR / "wolf"
+PLANT_ANIM_DIR = ANIM_DIR / "plant"
 TURN_DURATION_SEC = 0.5
+PLANT_GROWTH_SEC = 5.0
 SHOW_GRAPHS = True
 
 
@@ -47,6 +49,11 @@ class Painter:
             WOLF_ANIM_DIR,
             "wolf",
             wolf_scale,
+        )
+        self.plant_animation_frames = Painter.load_animation_frames(
+            PLANT_ANIM_DIR,
+            "plant",
+            sheep_scale,
         )
         self.visuals_by_id: dict[int, AnimalVisual] = {}
 
@@ -148,11 +155,29 @@ class Painter:
             2,
         )
 
+    def _draw_plant(
+        self,
+        screen: pygame.Surface,
+        plant,
+        x_offset: int,
+    ) -> None:
+        if len(self.plant_animation_frames) == 0:
+            return
+
+        growth_ratio = max(0.0, min(1.0, plant.age_sec / PLANT_GROWTH_SEC))
+        frame_index = int(growth_ratio * (len(self.plant_animation_frames) - 1))
+        image = self.plant_animation_frames[frame_index]
+        rect = image.get_rect(center=(plant.pos.x + x_offset, plant.pos.y))
+        screen.blit(image, rect)
+
     def draw(self, screen: pygame.Surface, world, dt: float, x_offset: int = 0) -> None:
         live_ids = world.live_ids()
         stale_ids = [aid for aid in self.visuals_by_id.keys() if aid not in live_ids]
         for aid in stale_ids:
             self.visuals_by_id.pop(aid, None)
+
+        for plant in world.grass_by_id.values():
+            self._draw_plant(screen, plant, x_offset)
 
         for sheep in world.sheep_by_id.values():
             self._draw_agent(screen, sheep, self.sheep_animation_frames, dt, x_offset)
