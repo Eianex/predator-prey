@@ -267,6 +267,7 @@ class Plant:
         ]
         random.shuffle(offsets)
 
+        candidate_children = []
         for offset in offsets:
             candidate_pos = self.pos + offset
             child = Plant(
@@ -275,8 +276,12 @@ class Plant:
                 scale=PLANT_SCALE,
             )
             if world.can_place_grass(child):
-                world.spawn_grass(child)
-                return
+                candidate_children.append(child)
+
+        if len(candidate_children) == 0:
+            return
+
+        world.spawn_grass(random.choice(candidate_children))
 
     def die(self) -> None:
         self.is_alive = False
@@ -409,29 +414,29 @@ class World:
     def can_spawn_sheep(self) -> bool:
         return len(self.sheep_by_id) + len(self.pending_sheep_births) < MAX_SHEEP
 
+    @staticmethod
+    def _is_inside_bounds(pos: Vector2, radius: float) -> bool:
+        return radius <= pos.x <= WIDTH - radius and radius <= pos.y <= HEIGHT - radius
+
     def can_place_grass(self, plant: Plant, exclude: int | None = None) -> bool:
-        if (
-            plant.pos.x < plant.base_radius
-            or plant.pos.x > WIDTH - plant.base_radius
-            or plant.pos.y < plant.base_radius
-            or plant.pos.y > HEIGHT - plant.base_radius
-        ):
+        if not self._is_inside_bounds(plant.pos, plant.base_radius):
             return False
+
+        slot_occupancy_dist = max(2.0, PLANT_SPREAD_OFFSET * 0.25)
+        slot_occupancy_dist_sq = slot_occupancy_dist * slot_occupancy_dist
 
         for other in self.grass_by_id.values():
             if exclude is not None and other.id == exclude:
                 continue
             if other.id in self.pending_dead_ids:
                 continue
-            min_dist = plant.base_radius + other.base_radius
-            if (other.pos - plant.pos).length_squared() < min_dist * min_dist:
+            if (other.pos - plant.pos).length_squared() <= slot_occupancy_dist_sq:
                 return False
 
         for pending in self.pending_grass_births:
             if exclude is not None and pending.id == exclude:
                 continue
-            min_dist = plant.base_radius + pending.base_radius
-            if (pending.pos - plant.pos).length_squared() < min_dist * min_dist:
+            if (pending.pos - plant.pos).length_squared() <= slot_occupancy_dist_sq:
                 return False
 
         return True
@@ -667,8 +672,10 @@ def main() -> None:
             wolf_scale=WOLF_SCALE,
             initial_sheep_count=len(world.sheep_by_id),
             initial_wolf_count=len(world.wolf_by_id),
+            initial_grass_count=len(world.grass_by_id),
             on_save_sheep=recorder.save_sheep,
             on_save_wolf=recorder.save_wolf,
+            on_save_grass=recorder.save_grass,
         )
 
         sim_time = 0.0
@@ -692,7 +699,9 @@ def main() -> None:
                 wolf_count = len(world.wolf_by_id)
                 grass_count = len(world.grass_by_id)
                 recorder.add_sample(sim_time, sheep_count, wolf_count, grass_count)
-                gui.add_population_sample(sim_time, sheep_count, wolf_count)
+                gui.add_population_sample(
+                    sim_time, sheep_count, wolf_count, grass_count
+                )
 
             gui.update(frame_dt)
             gui.draw(world, sim_time, step_dt)

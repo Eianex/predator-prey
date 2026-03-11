@@ -13,6 +13,7 @@ PANEL_BORDER_COLOR = (70, 86, 90)
 GRAPH_BG_COLOR = (16, 21, 24)
 SHEEP_GRAPH_COLOR = (188, 246, 166)
 WOLF_GRAPH_COLOR = (246, 148, 120)
+GRASS_GRAPH_COLOR = (150, 219, 95)
 WORLD_BG_COLOR = (78, 145, 68)
 
 ASSET_DIR = Path("img")
@@ -320,8 +321,10 @@ class SimulationGUI:
         wolf_scale: int,
         initial_sheep_count: int,
         initial_wolf_count: int,
+        initial_grass_count: int,
         on_save_sheep: Callable[[], None],
         on_save_wolf: Callable[[], None],
+        on_save_grass: Callable[[], None],
     ):
         pygame.init()
         pygame.display.set_caption("Wolf-Sheep Prototype")
@@ -345,6 +348,7 @@ class SimulationGUI:
 
         self.on_save_sheep = on_save_sheep
         self.on_save_wolf = on_save_wolf
+        self.on_save_grass = on_save_grass
 
         self.painter = Painter(
             sheep_scale,
@@ -353,10 +357,11 @@ class SimulationGUI:
 
         self.sheep_graph: PopulationGraph | None = None
         self.wolf_graph: PopulationGraph | None = None
+        self.grass_graph: PopulationGraph | None = None
         if self.show_graphs:
             margin = 14
             gap = 12
-            graph_height = (self.height - margin * 2 - gap) // 2
+            graph_height = (self.height - margin * 2 - gap * 2) // 3
             self.sheep_graph = PopulationGraph(
                 pygame.Rect(margin, margin, PANEL_WIDTH - margin * 2, graph_height),
                 "Sheep Population",
@@ -373,6 +378,17 @@ class SimulationGUI:
                 "Wolf Population",
                 WOLF_GRAPH_COLOR,
                 initial_wolf_count,
+            )
+            self.grass_graph = PopulationGraph(
+                pygame.Rect(
+                    margin,
+                    margin + (graph_height + gap) * 2,
+                    PANEL_WIDTH - margin * 2,
+                    graph_height,
+                ),
+                "Grass Population",
+                GRASS_GRAPH_COLOR,
+                initial_grass_count,
             )
 
     def tick(self) -> float:
@@ -401,21 +417,31 @@ class SimulationGUI:
                     ):
                         self.on_save_wolf()
                         self.wolf_graph.mark_saved()
+                    elif (
+                        self.grass_graph is not None
+                        and self.grass_graph.is_save_button_clicked(event.pos)
+                    ):
+                        self.on_save_grass()
+                        self.grass_graph.mark_saved()
         return running
 
     def add_population_sample(
-        self, time_sec: float, sheep_count: int, wolf_count: int
+        self, time_sec: float, sheep_count: int, wolf_count: int, grass_count: int
     ) -> None:
         if self.sheep_graph is not None:
             self.sheep_graph.add_sample(time_sec, sheep_count)
         if self.wolf_graph is not None:
             self.wolf_graph.add_sample(time_sec, wolf_count)
+        if self.grass_graph is not None:
+            self.grass_graph.add_sample(time_sec, grass_count)
 
     def update(self, frame_dt: float) -> None:
         if self.sheep_graph is not None:
             self.sheep_graph.update(frame_dt)
         if self.wolf_graph is not None:
             self.wolf_graph.update(frame_dt)
+        if self.grass_graph is not None:
+            self.grass_graph.update(frame_dt)
 
     def draw(self, world, sim_time: float, step_dt: float) -> None:
         self.screen.fill((0, 0, 0))
@@ -433,6 +459,8 @@ class SimulationGUI:
                 self.sheep_graph.draw(self.screen, self.font, self.small_font, sim_time)
             if self.wolf_graph is not None:
                 self.wolf_graph.draw(self.screen, self.font, self.small_font, sim_time)
+            if self.grass_graph is not None:
+                self.grass_graph.draw(self.screen, self.font, self.small_font, sim_time)
         else:
             pygame.draw.rect(self.screen, WORLD_BG_COLOR, self.world_rect)
 
