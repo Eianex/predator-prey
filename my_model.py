@@ -25,31 +25,32 @@ ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 
 NUM_SHEEP = 70
-NUM_WOLVES = 4
+NUM_WOLVES = 3
 MAX_SHEEP = 110
 MAX_GRASS = 500
-INITIAL_PLANTS = 200
+INITIAL_PLANTS = 220
 
 SHEEP_SCALE = 40
 WOLF_SCALE = 50
 
 SHEEP_SPEED = 100.0
-WOLF_SPEED = 110.0
+WOLF_SPEED = 120.0
 
 PLANT_SCALE = SHEEP_SCALE
-PLANT_GROWTH_SEC = 5.0
+PLANT_GROWTH_SEC = 3.0
 PLANT_REPRODUCTION_PERIOD_SEC = 3.0
 PLANT_REPRODUCTION_RADIUS = PLANT_SCALE
 PLANT_NEARBY_RADIUS_MULT = 1.01
 PLANT_NEARBY_LIMIT = 4
 PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.001
 
+SHEEP_EAT_COOLDOWN_SEC = 4.0
 SHEEP_STEP_SPEED_MULT_EXPAND = 0.8
 SHEEP_STEP_SPEED_MULT_COMPRESS = 2 - SHEEP_STEP_SPEED_MULT_EXPAND
 WOLF_STEP_SPEED_MULT_EXPAND = 0.8
 WOLF_STEP_SPEED_MULT_COMPRESS = 2 - WOLF_STEP_SPEED_MULT_EXPAND
 SHEEP_REPRODUCTION_COOLDOWN_SEC = 3.0
-SHEEP_EAT_COOLDOWN_SEC = 4.0
+
 
 GRAPH_SAMPLE_INTERVAL_SEC = 0.12
 SAVE_TO_FILE = False
@@ -114,6 +115,10 @@ class Sheep:
 
         world.validate_sheep_grass_target(self)
 
+        if self.eat_cooldown > 0.0:
+            world.clear_sheep_grass_target(self)
+            return
+
         if self.target_grass_id is not None:
             target = world.grass_by_id.get(self.target_grass_id)
             if target is None or target.id in world.pending_dead_ids:
@@ -123,8 +128,6 @@ class Sheep:
                 self.motor.set_target(target.pos)
             return
 
-        if self.eat_cooldown > 0.0:
-            return
         nearest_plant = world.get_nearest_grass_entity(self.pos)
         if nearest_plant is None:
             self.motor.clear_target()
@@ -712,14 +715,15 @@ class World:
         if not isinstance(sheep.motor, TargetStraightMotor):
             return
         self.validate_sheep_grass_target(sheep)
+        if sheep.eat_cooldown > 0.0:
+            self.clear_sheep_grass_target(sheep)
+            return
         if sheep.target_grass_id is not None:
             plant = self.grass_by_id.get(sheep.target_grass_id)
             if plant is None or plant.id in self.pending_dead_ids:
                 self.clear_sheep_grass_target(sheep)
                 return
             sheep.motor.set_target(plant.pos)
-            return
-        if sheep.eat_cooldown > 0.0:
             return
         nearest_plant = self.get_nearest_grass_entity(sheep.pos)
         if nearest_plant is None:
