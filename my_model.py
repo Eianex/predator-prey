@@ -357,6 +357,8 @@ class World:
                 scale=WOLF_SCALE,
             )
             self.wolf_by_id[wid] = wolf
+            self._bounce_wolf_in_bounds(wolf)
+            self._retarget_wolf_to_nearest_sheep(wolf)
 
         planted = 0
         attempts = 0
@@ -593,6 +595,32 @@ class World:
             return None
         return Vector2(nearest_pos.x, nearest_pos.y)
 
+    def _retarget_wolf_to_nearest_sheep(self, wolf: Wolf) -> None:
+        if not isinstance(wolf.motor, TargetStraightMotor):
+            return
+        nearest_sheep_pos = self.get_nearest_sheep(wolf.pos)
+        if nearest_sheep_pos is None:
+            wolf.motor.clear_target()
+        else:
+            wolf.motor.set_target(nearest_sheep_pos)
+
+    def _bounce_wolf_in_bounds(self, wolf: Wolf) -> bool:
+        prev_pos = Vector2(wolf.pos.x, wolf.pos.y)
+        prev_vel = Vector2(wolf.vel.x, wolf.vel.y)
+        wolf.pos, wolf.vel = self.bounce_in_bounds(
+            wolf.pos,
+            wolf.vel,
+            wolf.base_radius,
+            WIDTH,
+            HEIGHT,
+        )
+        pos_changed = (wolf.pos - prev_pos).length_squared() > 1e-12
+        vel_changed = (wolf.vel - prev_vel).length_squared() > 1e-12
+        if pos_changed or vel_changed:
+            self._retarget_wolf_to_nearest_sheep(wolf)
+            return True
+        return False
+
     def count_nearby_grass(
         self, pos: Vector2, radius: float, exclude: int | None = None
     ) -> int:
@@ -639,9 +667,12 @@ class World:
         for agent in self.all_agents():
             scale = self._displacement_scale(agent)
             agent.move(dt, scale)
-            agent.pos, agent.vel = self.bounce_in_bounds(
-                agent.pos, agent.vel, agent.base_radius, WIDTH, HEIGHT
-            )
+            if isinstance(agent, Wolf):
+                self._bounce_wolf_in_bounds(agent)
+            else:
+                agent.pos, agent.vel = self.bounce_in_bounds(
+                    agent.pos, agent.vel, agent.base_radius, WIDTH, HEIGHT
+                )
             self._advance_motion_frame(agent, dt)
 
     def _resolve_physics_collisions(self) -> None:
@@ -676,20 +707,21 @@ class World:
 
                 self.elastic_collision_response(a, b, normal, dist, min_dist)
 
+                if isinstance(a, Wolf):
+                    self._bounce_wolf_in_bounds(a)
+                if isinstance(b, Wolf):
+                    self._bounce_wolf_in_bounds(b)
+
                 if isinstance(a, Wolf) and isinstance(b, Wolf):
-                    for wolf in (a, b):
-                        if isinstance(wolf.motor, TargetStraightMotor):
-                            nearest_sheep_pos = self.get_nearest_sheep(wolf.pos)
-                            if nearest_sheep_pos is None:
-                                wolf.motor.clear_target()
-                            else:
-                                wolf.motor.set_target(nearest_sheep_pos)
+                    self._retarget_wolf_to_nearest_sheep(a)
+                    self._retarget_wolf_to_nearest_sheep(b)
 
     def _act_agents(self, dt: float) -> None:
         for wolf in list(self.wolf_by_id.values()):
             if wolf.id in self.pending_dead_ids:
                 continue
             wolf.act(self, dt)
+            self._bounce_wolf_in_bounds(wolf)
 
         for sheep in list(self.sheep_by_id.values()):
             if sheep.id in self.pending_dead_ids:
