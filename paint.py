@@ -22,7 +22,7 @@ SHEEP_ANIM_DIR = ANIM_DIR / "sheep"
 WOLF_ANIM_DIR = ANIM_DIR / "wolf"
 PLANT_ANIM_DIR = ANIM_DIR / "plant"
 TURN_DURATION_SEC = 0.5
-PLANT_GROWTH_SEC = 5.0
+DEFAULT_PLANT_GROWTH_SEC = 5.0
 SHOW_GRAPHS = True
 
 
@@ -39,8 +39,10 @@ class Painter:
         self,
         sheep_scale: int,
         wolf_scale: int,
+        plant_growth_sec: float,
     ):
         self.turn_duration_sec = TURN_DURATION_SEC
+        self.plant_growth_sec = max(1e-6, plant_growth_sec)
         self.sheep_animation_frames = Painter.load_animation_frames(
             SHEEP_ANIM_DIR,
             "sheep",
@@ -165,7 +167,7 @@ class Painter:
         if len(self.plant_animation_frames) == 0:
             return
 
-        growth_ratio = max(0.0, min(1.0, plant.age_sec / PLANT_GROWTH_SEC))
+        growth_ratio = max(0.0, min(1.0, plant.age_sec / self.plant_growth_sec))
         frame_index = int(growth_ratio * (len(self.plant_animation_frames) - 1))
         image = self.plant_animation_frames[frame_index]
         rect = image.get_rect(center=(plant.pos.x + x_offset, plant.pos.y))
@@ -325,6 +327,7 @@ class SimulationGUI:
         on_save_sheep: Callable[[], None],
         on_save_wolf: Callable[[], None],
         on_save_grass: Callable[[], None],
+        plant_growth_sec: float = DEFAULT_PLANT_GROWTH_SEC,
     ):
         pygame.init()
         pygame.display.set_caption("Wolf-Sheep Prototype")
@@ -353,6 +356,7 @@ class SimulationGUI:
         self.painter = Painter(
             sheep_scale,
             wolf_scale,
+            plant_growth_sec=plant_growth_sec,
         )
 
         self.sheep_graph: PopulationGraph | None = None

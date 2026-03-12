@@ -644,6 +644,8 @@ class World:
                 continue
             if plant.id in self.pending_dead_ids:
                 continue
+            if not plant.is_fully_grown():
+                continue
             dist_sq = (plant.pos - pos).length_squared()
             if dist_sq < nearest_dist_sq:
                 nearest_dist_sq = dist_sq
@@ -670,6 +672,9 @@ class World:
         if plant is None:
             self.clear_sheep_grass_target(sheep)
             return
+        if not plant.is_fully_grown():
+            self.clear_sheep_grass_target(sheep)
+            return
         locked_by = self.grass_target_locks.get(target_id)
         if locked_by != sheep.id:
             self.clear_sheep_grass_target(sheep)
@@ -678,6 +683,8 @@ class World:
         if sheep.id in self.pending_dead_ids:
             return False
         if plant.id in self.pending_dead_ids:
+            return False
+        if not plant.is_fully_grown():
             return False
         locked_by = self.grass_target_locks.get(plant.id)
         if locked_by is not None and locked_by != sheep.id:
@@ -976,6 +983,7 @@ def main() -> None:
             on_save_sheep=recorder.save_sheep,
             on_save_wolf=recorder.save_wolf,
             on_save_grass=recorder.save_grass,
+            plant_growth_sec=PLANT_GROWTH_SEC,
         )
 
         sim_time = 0.0
