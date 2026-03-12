@@ -123,6 +123,8 @@ class Sheep:
                 self.motor.set_target(target.pos)
             return
 
+        if self.eat_cooldown > 0.0:
+            return
         nearest_plant = world.get_nearest_grass_entity(self.pos)
         if nearest_plant is None:
             self.motor.clear_target()
@@ -716,6 +718,8 @@ class World:
                 self.clear_sheep_grass_target(sheep)
                 return
             sheep.motor.set_target(plant.pos)
+            return
+        if sheep.eat_cooldown > 0.0:
             return
         nearest_plant = self.get_nearest_grass_entity(sheep.pos)
         if nearest_plant is None:
