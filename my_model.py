@@ -83,6 +83,7 @@ class Sheep:
         )
         self.base_radius = scale * 0.38
         self.motion_frame = random.uniform(0.0, float(ANIM_FRAME_COUNT))
+        self.target_grass_id: int | None = None
 
     def move(self, dt: float, displacement_scale: float) -> None:
         self.pos, self.vel = self.motor.advance(
@@ -101,8 +102,34 @@ class Sheep:
 
     def act(self, world: "World", dt: float) -> None:
         _ = dt
+        self.try_acquire_grass_target(world)
         self.try_eat_grass(world)
         self.try_reproduce(world)
+
+    def try_acquire_grass_target(self, world: "World") -> None:
+        if self.id in world.pending_dead_ids:
+            return
+        if not isinstance(self.motor, TargetStraightMotor):
+            return
+
+        world.validate_sheep_grass_target(self)
+
+        if self.target_grass_id is not None:
+            target = world.grass_by_id.get(self.target_grass_id)
+            if target is None or target.id in world.pending_dead_ids:
+                world.clear_sheep_grass_target(self)
+                return
+            if not self.motor.target_acquired:
+                self.motor.set_target(target.pos)
+            return
+
+        nearest_plant = world.get_nearest_grass_entity(self.pos)
+        if nearest_plant is None:
+            self.motor.clear_target()
+            return
+
+        if world.claim_grass_for_sheep(self, nearest_plant):
+            self.motor.set_target(nearest_plant.pos)
 
     def try_eat_grass(self, world: "World") -> None:
         if self.id in world.pending_dead_ids:
@@ -173,7 +200,7 @@ class Sheep:
 
         child = Sheep(
             animal_id=child_id,
-            motor=RandomWalkMotor(),
+            motor=TargetStraightMotor(),
             position=midpoint + offset,
             speed=SHEEP_SPEED,
             scale=SHEEP_SCALE,
@@ -335,17 +362,20 @@ class World:
         self.pending_sheep_births: list[Sheep] = []
         self.pending_grass_births: list[Plant] = []
         self.pending_dead_ids: set[int] = set()
+        self.grass_target_locks: dict[int, int] = {}
 
         for _ in range(NUM_SHEEP):
             sid = self.allocate_id()
             sheep = Sheep(
                 animal_id=sid,
-                motor=RandomWalkMotor(),
+                motor=TargetStraightMotor(),
                 position=Vector2(random.uniform(0, WIDTH), random.uniform(0, HEIGHT)),
                 speed=SHEEP_SPEED,
                 scale=SHEEP_SCALE,
             )
             self.sheep_by_id[sid] = sheep
+            self._bounce_sheep_in_bounds(sheep)
+            self._retarget_sheep_to_nearest_grass(sheep)
 
         for _ in range(NUM_WOLVES):
             wid = self.allocate_id()
@@ -484,9 +514,8 @@ class World:
 
     def spawn_sheep(self, sheep: Sheep) -> None:
         if self.can_spawn_sheep():
-            sheep.pos, sheep.vel = self.bounce_in_bounds(
-                sheep.pos, sheep.vel, sheep.base_radius, WIDTH, HEIGHT
-            )
+            self._bounce_sheep_in_bounds(sheep)
+            self._retarget_sheep_to_nearest_grass(sheep)
             self.pending_sheep_births.append(sheep)
 
     def spawn_grass(self, plant: Plant) -> None:
@@ -494,6 +523,16 @@ class World:
             self.pending_grass_births.append(plant)
 
     def mark_dead(self, entity) -> None:
+        if isinstance(entity, Plant):
+            locked_by = self.grass_target_locks.pop(entity.id, None)
+            if locked_by is not None:
+                sheep = self.sheep_by_id.get(locked_by)
+                if sheep is not None and sheep.target_grass_id == entity.id:
+                    sheep.target_grass_id = None
+                    if isinstance(sheep.motor, TargetStraightMotor):
+                        sheep.motor.clear_target()
+        elif isinstance(entity, Sheep):
+            self.clear_sheep_grass_target(entity)
         self.pending_dead_ids.add(entity.id)
 
     def get_nearby_sheep(
@@ -595,6 +634,62 @@ class World:
             return None
         return Vector2(nearest_pos.x, nearest_pos.y)
 
+    def get_nearest_grass_entity(
+        self, pos: Vector2, exclude: int | None = None
+    ) -> Plant | None:
+        nearest: Plant | None = None
+        nearest_dist_sq = float("inf")
+        for plant in self.grass_by_id.values():
+            if exclude is not None and plant.id == exclude:
+                continue
+            if plant.id in self.pending_dead_ids:
+                continue
+            dist_sq = (plant.pos - pos).length_squared()
+            if dist_sq < nearest_dist_sq:
+                nearest_dist_sq = dist_sq
+                nearest = plant
+        return nearest
+
+    def clear_sheep_grass_target(self, sheep: Sheep) -> None:
+        if sheep.target_grass_id is not None:
+            locked_by = self.grass_target_locks.get(sheep.target_grass_id)
+            if locked_by == sheep.id:
+                self.grass_target_locks.pop(sheep.target_grass_id, None)
+        sheep.target_grass_id = None
+        if isinstance(sheep.motor, TargetStraightMotor):
+            sheep.motor.clear_target()
+
+    def validate_sheep_grass_target(self, sheep: Sheep) -> None:
+        target_id = sheep.target_grass_id
+        if target_id is None:
+            return
+        if target_id in self.pending_dead_ids:
+            self.clear_sheep_grass_target(sheep)
+            return
+        plant = self.grass_by_id.get(target_id)
+        if plant is None:
+            self.clear_sheep_grass_target(sheep)
+            return
+        locked_by = self.grass_target_locks.get(target_id)
+        if locked_by != sheep.id:
+            self.clear_sheep_grass_target(sheep)
+
+    def claim_grass_for_sheep(self, sheep: Sheep, plant: Plant) -> bool:
+        if sheep.id in self.pending_dead_ids:
+            return False
+        if plant.id in self.pending_dead_ids:
+            return False
+        locked_by = self.grass_target_locks.get(plant.id)
+        if locked_by is not None and locked_by != sheep.id:
+            return False
+
+        if sheep.target_grass_id is not None and sheep.target_grass_id != plant.id:
+            self.clear_sheep_grass_target(sheep)
+
+        self.grass_target_locks[plant.id] = sheep.id
+        sheep.target_grass_id = plant.id
+        return True
+
     def _retarget_wolf_to_nearest_sheep(self, wolf: Wolf) -> None:
         if not isinstance(wolf.motor, TargetStraightMotor):
             return
@@ -603,6 +698,26 @@ class World:
             wolf.motor.clear_target()
         else:
             wolf.motor.set_target(nearest_sheep_pos)
+
+    def _retarget_sheep_to_nearest_grass(self, sheep: Sheep) -> None:
+        if not isinstance(sheep.motor, TargetStraightMotor):
+            return
+        self.validate_sheep_grass_target(sheep)
+        if sheep.target_grass_id is not None:
+            plant = self.grass_by_id.get(sheep.target_grass_id)
+            if plant is None or plant.id in self.pending_dead_ids:
+                self.clear_sheep_grass_target(sheep)
+                return
+            sheep.motor.set_target(plant.pos)
+            return
+        nearest_plant = self.get_nearest_grass_entity(sheep.pos)
+        if nearest_plant is None:
+            sheep.motor.clear_target()
+            return
+        if self.claim_grass_for_sheep(sheep, nearest_plant):
+            sheep.motor.set_target(nearest_plant.pos)
+        else:
+            sheep.motor.clear_target()
 
     def _bounce_wolf_in_bounds(self, wolf: Wolf) -> bool:
         prev_pos = Vector2(wolf.pos.x, wolf.pos.y)
@@ -618,6 +733,23 @@ class World:
         vel_changed = (wolf.vel - prev_vel).length_squared() > 1e-12
         if pos_changed or vel_changed:
             self._retarget_wolf_to_nearest_sheep(wolf)
+            return True
+        return False
+
+    def _bounce_sheep_in_bounds(self, sheep: Sheep) -> bool:
+        prev_pos = Vector2(sheep.pos.x, sheep.pos.y)
+        prev_vel = Vector2(sheep.vel.x, sheep.vel.y)
+        sheep.pos, sheep.vel = self.bounce_in_bounds(
+            sheep.pos,
+            sheep.vel,
+            sheep.base_radius,
+            WIDTH,
+            HEIGHT,
+        )
+        pos_changed = (sheep.pos - prev_pos).length_squared() > 1e-12
+        vel_changed = (sheep.vel - prev_vel).length_squared() > 1e-12
+        if pos_changed or vel_changed:
+            self._retarget_sheep_to_nearest_grass(sheep)
             return True
         return False
 
@@ -670,9 +802,7 @@ class World:
             if isinstance(agent, Wolf):
                 self._bounce_wolf_in_bounds(agent)
             else:
-                agent.pos, agent.vel = self.bounce_in_bounds(
-                    agent.pos, agent.vel, agent.base_radius, WIDTH, HEIGHT
-                )
+                self._bounce_sheep_in_bounds(agent)
             self._advance_motion_frame(agent, dt)
 
     def _resolve_physics_collisions(self) -> None:
@@ -709,12 +839,19 @@ class World:
 
                 if isinstance(a, Wolf):
                     self._bounce_wolf_in_bounds(a)
+                elif isinstance(a, Sheep):
+                    self._bounce_sheep_in_bounds(a)
                 if isinstance(b, Wolf):
                     self._bounce_wolf_in_bounds(b)
+                elif isinstance(b, Sheep):
+                    self._bounce_sheep_in_bounds(b)
 
                 if isinstance(a, Wolf) and isinstance(b, Wolf):
                     self._retarget_wolf_to_nearest_sheep(a)
                     self._retarget_wolf_to_nearest_sheep(b)
+                elif isinstance(a, Sheep) and isinstance(b, Sheep):
+                    self._retarget_sheep_to_nearest_grass(a)
+                    self._retarget_sheep_to_nearest_grass(b)
 
     def _act_agents(self, dt: float) -> None:
         for wolf in list(self.wolf_by_id.values()):
@@ -727,6 +864,7 @@ class World:
             if sheep.id in self.pending_dead_ids:
                 continue
             sheep.act(self, dt)
+            self._bounce_sheep_in_bounds(sheep)
 
     def _update_grass(self, dt: float) -> None:
         for plant in list(self.grass_by_id.values()):
@@ -750,12 +888,14 @@ class World:
         for dead_id in list(self.pending_dead_ids):
             sheep = self.sheep_by_id.pop(dead_id, None)
             if sheep is not None:
+                self.clear_sheep_grass_target(sheep)
                 sheep.die()
             wolf = self.wolf_by_id.pop(dead_id, None)
             if wolf is not None:
                 wolf.die()
             plant = self.grass_by_id.pop(dead_id, None)
             if plant is not None:
+                self.grass_target_locks.pop(plant.id, None)
                 plant.die()
         self.pending_dead_ids.clear()
 
