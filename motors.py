@@ -73,3 +73,55 @@ class RandomWalkMotor:
         new_vel = heading * speed
         new_pos = pos + new_vel * dt * displacement_scale
         return new_pos, new_vel
+
+
+class TargetStraightMotor:
+    def __init__(self):
+        self.target_pos: Vector2 | None = None
+        self.target_acquired = False
+
+    def set_target(self, target_pos: Vector2) -> None:
+        self.target_pos = Vector2(target_pos.x, target_pos.y)
+        self.target_acquired = True
+
+    def clear_target(self) -> None:
+        self.target_pos = None
+        self.target_acquired = False
+
+    def advance(
+        self,
+        pos: Vector2,
+        vel: Vector2,
+        speed: float,
+        dt: float,
+        radius: float,
+        displacement_scale: float,
+    ) -> tuple[Vector2, Vector2]:
+        if self.target_acquired and self.target_pos is not None:
+            to_target = self.target_pos - pos
+            dist_sq = to_target.length_squared()
+
+            if dist_sq > 1e-12:
+                heading = to_target.normalize()
+                new_vel = heading * speed
+                new_pos = pos + new_vel * dt * displacement_scale
+            else:
+                new_vel = vel if vel.length_squared() > 1e-6 else Vector2(speed, 0.0)
+                new_pos = pos
+
+            reach_dist = max(radius, speed * dt * displacement_scale)
+            if (self.target_pos - new_pos).length_squared() <= reach_dist * reach_dist:
+                new_pos = Vector2(self.target_pos.x, self.target_pos.y)
+                self.clear_target()
+
+            return new_pos, new_vel
+
+        if vel.length_squared() < 1e-6:
+            angle = random.uniform(0.0, math.tau)
+            heading = Vector2(math.cos(angle), math.sin(angle))
+            new_vel = heading * speed
+        else:
+            new_vel = vel.normalize() * speed
+
+        new_pos = pos + new_vel * dt * displacement_scale
+        return new_pos, new_vel
