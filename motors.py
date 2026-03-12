@@ -42,8 +42,9 @@ class StraightLineMotor:
 
 
 class RandomWalkMotor:
-    def __init__(self, turn_rate_rad_per_sec: float = 10.0):
-        self.turn_rate = turn_rate_rad_per_sec
+    def __init__(self, turn_interval_sec: float = 3.0):
+        self.turn_interval_sec = max(1e-6, turn_interval_sec)
+        self.time_to_next_turn = self.turn_interval_sec
 
     def advance(
         self,
@@ -60,13 +61,14 @@ class RandomWalkMotor:
         else:
             heading = vel.normalize()
 
-        jitter = random.uniform(-1.0, 1.0) * self.turn_rate * dt
-        cos_j = math.cos(jitter)
-        sin_j = math.sin(jitter)
-        heading = Vector2(
-            heading.x * cos_j - heading.y * sin_j,
-            heading.x * sin_j + heading.y * cos_j,
-        )
+        self.time_to_next_turn -= dt
+        if self.time_to_next_turn <= 0.0:
+            current_angle = math.atan2(heading.y, heading.x)
+            delta_angle = random.uniform(-math.pi / 4.0, math.pi / 4.0)
+            new_angle = current_angle + delta_angle
+            heading = Vector2(math.cos(new_angle), math.sin(new_angle))
+            while self.time_to_next_turn <= 0.0:
+                self.time_to_next_turn += self.turn_interval_sec
 
         new_vel = heading * speed
         new_pos = pos + new_vel * dt * displacement_scale
