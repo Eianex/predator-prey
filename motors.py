@@ -100,20 +100,20 @@ class TargetStraightMotor:
         if self.target_acquired and self.target_pos is not None:
             to_target = self.target_pos - pos
             dist_sq = to_target.length_squared()
-
-            if dist_sq > 1e-12:
-                heading = to_target.normalize()
-                new_vel = heading * speed
-                new_pos = pos + new_vel * dt * displacement_scale
-            else:
+            if dist_sq <= 1e-12:
+                self.clear_target()
                 new_vel = vel if vel.length_squared() > 1e-6 else Vector2(speed, 0.0)
-                new_pos = pos
+                return pos, new_vel
 
-            reach_dist = max(radius, speed * dt * displacement_scale)
-            if (self.target_pos - new_pos).length_squared() <= reach_dist * reach_dist:
+            dist = math.sqrt(dist_sq)
+            heading = to_target / dist
+            new_vel = heading * speed
+            step_dist = speed * dt * displacement_scale
+            if step_dist >= dist:
                 new_pos = Vector2(self.target_pos.x, self.target_pos.y)
                 self.clear_target()
-
+            else:
+                new_pos = pos + heading * step_dist
             return new_pos, new_vel
 
         if vel.length_squared() < 1e-6:

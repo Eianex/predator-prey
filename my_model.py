@@ -4,7 +4,12 @@ import time
 
 from pygame.math import Vector2
 
-from motors import MovementMotor, RandomWalkMotor, StraightLineMotor
+from motors import (
+    MovementMotor,
+    RandomWalkMotor,
+    StraightLineMotor,
+    TargetStraightMotor,
+)
 from paint import SimulationGUI
 from recorder import PopulationRecorder
 
@@ -20,7 +25,7 @@ ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 
 NUM_SHEEP = 70
-NUM_WOLVES = 3
+NUM_WOLVES = 4
 MAX_SHEEP = 110
 MAX_GRASS = 500
 INITIAL_PLANTS = 200
@@ -29,7 +34,7 @@ SHEEP_SCALE = 40
 WOLF_SCALE = 50
 
 SHEEP_SPEED = 100.0
-WOLF_SPEED = 200.0
+WOLF_SPEED = 110.0
 
 PLANT_SCALE = SHEEP_SCALE
 PLANT_GROWTH_SEC = 5.0
@@ -213,6 +218,11 @@ class Wolf:
 
     def act(self, world: "World", dt: float) -> None:
         _ = dt
+        if isinstance(self.motor, TargetStraightMotor):
+            if not self.motor.target_acquired:
+                nearest_sheep_pos = world.get_nearest_sheep(self.pos)
+                if nearest_sheep_pos is not None:
+                    self.motor.set_target(nearest_sheep_pos)
         self.try_eat(world)
 
     def try_eat(self, world: "World") -> None:
@@ -341,7 +351,7 @@ class World:
             wid = self.allocate_id()
             wolf = Wolf(
                 animal_id=wid,
-                motor=StraightLineMotor(),
+                motor=TargetStraightMotor(),
                 position=Vector2(random.uniform(0, WIDTH), random.uniform(0, HEIGHT)),
                 speed=WOLF_SPEED,
                 scale=WOLF_SCALE,
