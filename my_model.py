@@ -526,6 +526,63 @@ class World:
                 nearby.append(plant)
         return nearby
 
+    def get_nearest_sheep(
+        self, pos: Vector2, exclude: int | None = None
+    ) -> Vector2 | None:
+        nearest_pos: Vector2 | None = None
+        nearest_dist_sq = float("inf")
+        for sheep in self.sheep_by_id.values():
+            if exclude is not None and sheep.id == exclude:
+                continue
+            if sheep.id in self.pending_dead_ids:
+                continue
+            dist_sq = (sheep.pos - pos).length_squared()
+            if dist_sq < nearest_dist_sq:
+                nearest_dist_sq = dist_sq
+                nearest_pos = sheep.pos
+
+        if nearest_pos is None:
+            return None
+        return Vector2(nearest_pos.x, nearest_pos.y)
+
+    def get_nearest_wolf(
+        self, pos: Vector2, exclude: int | None = None
+    ) -> Vector2 | None:
+        nearest_pos: Vector2 | None = None
+        nearest_dist_sq = float("inf")
+        for wolf in self.wolf_by_id.values():
+            if exclude is not None and wolf.id == exclude:
+                continue
+            if wolf.id in self.pending_dead_ids:
+                continue
+            dist_sq = (wolf.pos - pos).length_squared()
+            if dist_sq < nearest_dist_sq:
+                nearest_dist_sq = dist_sq
+                nearest_pos = wolf.pos
+
+        if nearest_pos is None:
+            return None
+        return Vector2(nearest_pos.x, nearest_pos.y)
+
+    def get_nearest_grass(
+        self, pos: Vector2, exclude: int | None = None
+    ) -> Vector2 | None:
+        nearest_pos: Vector2 | None = None
+        nearest_dist_sq = float("inf")
+        for plant in self.grass_by_id.values():
+            if exclude is not None and plant.id == exclude:
+                continue
+            if plant.id in self.pending_dead_ids:
+                continue
+            dist_sq = (plant.pos - pos).length_squared()
+            if dist_sq < nearest_dist_sq:
+                nearest_dist_sq = dist_sq
+                nearest_pos = plant.pos
+
+        if nearest_pos is None:
+            return None
+        return Vector2(nearest_pos.x, nearest_pos.y)
+
     def count_nearby_grass(
         self, pos: Vector2, radius: float, exclude: int | None = None
     ) -> int:
