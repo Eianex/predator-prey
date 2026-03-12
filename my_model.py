@@ -676,6 +676,15 @@ class World:
 
                 self.elastic_collision_response(a, b, normal, dist, min_dist)
 
+                if isinstance(a, Wolf) and isinstance(b, Wolf):
+                    for wolf in (a, b):
+                        if isinstance(wolf.motor, TargetStraightMotor):
+                            nearest_sheep_pos = self.get_nearest_sheep(wolf.pos)
+                            if nearest_sheep_pos is None:
+                                wolf.motor.clear_target()
+                            else:
+                                wolf.motor.set_target(nearest_sheep_pos)
+
     def _act_agents(self, dt: float) -> None:
         for wolf in list(self.wolf_by_id.values()):
             if wolf.id in self.pending_dead_ids:
