@@ -39,6 +39,7 @@ class Painter:
         self,
         sheep_scale: int,
         wolf_scale: int,
+        grass_scale: int,
         plant_growth_sec: float,
     ):
         self.turn_duration_sec = TURN_DURATION_SEC
@@ -56,7 +57,7 @@ class Painter:
         self.plant_animation_frames = Painter.load_animation_frames(
             PLANT_ANIM_DIR,
             "plant",
-            sheep_scale,
+            grass_scale,
         )
         self.visuals_by_id: dict[int, AnimalVisual] = {}
 
@@ -321,6 +322,7 @@ class SimulationGUI:
         fps: int,
         sheep_scale: int,
         wolf_scale: int,
+        grass_scale: int,
         initial_sheep_count: int,
         initial_wolf_count: int,
         initial_grass_count: int,
@@ -356,6 +358,7 @@ class SimulationGUI:
         self.painter = Painter(
             sheep_scale,
             wolf_scale,
+            grass_scale,
             plant_growth_sec=plant_growth_sec,
         )
 

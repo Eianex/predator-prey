@@ -25,32 +25,33 @@ ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 
 NUM_SHEEP = 70
-NUM_WOLVES = 3
-MAX_SHEEP = 110
+NUM_WOLVES = 6
+MAX_SHEEP = 310
 MAX_GRASS = 500
-INITIAL_PLANTS = 220
+INITIAL_PLANTS = 320
 
-SHEEP_SCALE = 40
-WOLF_SCALE = 50
+SHEEP_SCALE = 18
+WOLF_SCALE = 18
 
-SHEEP_SPEED = 100.0
-WOLF_SPEED = 110.0
+SHEEP_SPEED = 40.0
+WOLF_SPEED = 48.0
 
-PLANT_SCALE = SHEEP_SCALE
-PLANT_GROWTH_SEC = 3.0
-PLANT_REPRODUCTION_PERIOD_SEC = 3.0
+PLANT_SCALE = 30
+PLANT_GROWTH_SEC = 2.0
+PLANT_REPRODUCTION_PERIOD_SEC = 2.0
 PLANT_REPRODUCTION_RADIUS = PLANT_SCALE
 PLANT_NEARBY_RADIUS_MULT = 1.01
 PLANT_NEARBY_LIMIT = 4
-PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.001
+PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.01
 
-SHEEP_EAT_COOLDOWN_SEC = 3.0
+SHEEP_EAT_COOLDOWN_SEC = 2.5
 SHEEP_TYPE_OF_REPRODUCTION = "asexual"
 WOLF_TYPE_OF_REPRODUCTION = "asexual"
-SHEEP_NO_NEED_FOOD_SEC = 5.0
-SHEEP_TIMER_TO_FIND_FOOD_SEC = 5.0
-WOLF_NO_NEED_FOOD_SEC = 4.0
-WOLF_TIMER_TO_FIND_FOOD_SEC = 2.0
+WOLF_EAT_ALL = True
+SHEEP_NO_NEED_FOOD_SEC = 2.5
+SHEEP_TIMER_TO_FIND_FOOD_SEC = 10.0
+WOLF_NO_NEED_FOOD_SEC = 1.2
+WOLF_TIMER_TO_FIND_FOOD_SEC = 2.2
 SHEEP_ASEXUAL_REPRODUCTION_DELAY_SEC = 0.30
 SHEEP_ASEXUAL_REPRODUCTION_DELAY_JITTER_SEC = 0.15
 WOLF_ASEXUAL_REPRODUCTION_DELAY_SEC = 0.30
@@ -298,6 +299,9 @@ class Wolf:
         )
 
     def act(self, world: "World", dt: float) -> None:
+        if WOLF_EAT_ALL and self.try_eat(world):
+            return
+
         if not self._can_search_food(world, dt):
             if isinstance(self.motor, TargetStraightMotor):
                 self.motor.clear_target()
@@ -323,9 +327,9 @@ class Wolf:
             return False
         return True
 
-    def try_eat(self, world: "World") -> None:
+    def try_eat(self, world: "World") -> bool:
         if self.id in world.pending_dead_ids:
-            return
+            return False
 
         search_radius = self.base_radius + (SHEEP_SCALE * 0.38)
         nearby = world.get_nearby_sheep(self.pos, search_radius)
@@ -335,7 +339,8 @@ class Wolf:
             min_dist = self.base_radius + sheep.base_radius
             if (sheep.pos - self.pos).length_squared() < min_dist * min_dist:
                 self.eat(sheep, world)
-                return
+                return True
+        return False
 
     def eat(self, target_sheep: Sheep, world: "World") -> None:
         world.mark_dead(target_sheep)
@@ -1151,6 +1156,7 @@ def main() -> None:
             fps=FPS,
             sheep_scale=SHEEP_SCALE,
             wolf_scale=WOLF_SCALE,
+            grass_scale=PLANT_SCALE,
             initial_sheep_count=len(world.sheep_by_id),
             initial_wolf_count=len(world.wolf_by_id),
             initial_grass_count=len(world.grass_by_id),
