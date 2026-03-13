@@ -34,7 +34,7 @@ SHEEP_SCALE = 40
 WOLF_SCALE = 50
 
 SHEEP_SPEED = 100.0
-WOLF_SPEED = 120.0
+WOLF_SPEED = 110.0
 
 PLANT_SCALE = SHEEP_SCALE
 PLANT_GROWTH_SEC = 3.0
@@ -44,12 +44,21 @@ PLANT_NEARBY_RADIUS_MULT = 1.01
 PLANT_NEARBY_LIMIT = 4
 PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.001
 
-SHEEP_EAT_COOLDOWN_SEC = 4.0
+SHEEP_EAT_COOLDOWN_SEC = 3.0
+SHEEP_TYPE_OF_REPRODUCTION = "asexual"
+WOLF_TYPE_OF_REPRODUCTION = "asexual"
+SHEEP_NO_NEED_FOOD_SEC = 5.0
+SHEEP_TIMER_TO_FIND_FOOD_SEC = 5.0
+WOLF_NO_NEED_FOOD_SEC = 4.0
+WOLF_TIMER_TO_FIND_FOOD_SEC = 2.0
+SHEEP_ASEXUAL_REPRODUCTION_DELAY_SEC = 0.30
+SHEEP_ASEXUAL_REPRODUCTION_DELAY_JITTER_SEC = 0.15
+WOLF_ASEXUAL_REPRODUCTION_DELAY_SEC = 0.30
+WOLF_ASEXUAL_REPRODUCTION_DELAY_JITTER_SEC = 0.15
 SHEEP_STEP_SPEED_MULT_EXPAND = 0.8
 SHEEP_STEP_SPEED_MULT_COMPRESS = 2 - SHEEP_STEP_SPEED_MULT_EXPAND
 WOLF_STEP_SPEED_MULT_EXPAND = 0.8
 WOLF_STEP_SPEED_MULT_COMPRESS = 2 - WOLF_STEP_SPEED_MULT_EXPAND
-SHEEP_REPRODUCTION_COOLDOWN_SEC = 3.0
 
 
 GRAPH_SAMPLE_INTERVAL_SEC = 0.12
@@ -60,6 +69,27 @@ HEADLESS = False
 # ------------------------------------------------------------
 # Agents
 # ------------------------------------------------------------
+class PendingAsexualBirth:
+    def __init__(self, species: str, parent_id: int, delay_sec: float):
+        self.species = species
+        self.parent_id = parent_id
+        self.delay_sec = max(0.0, delay_sec)
+
+
+class AsexualReproduction:
+    @staticmethod
+    def spawn_position(origin: Vector2, radius: float) -> Vector2:
+        offset = Vector2(random.uniform(-1.0, 1.0), random.uniform(-1.0, 1.0))
+        if offset.length_squared() < 1e-6:
+            offset = Vector2(1.0, 0.0)
+        offset = offset.normalize() * random.uniform(0.0, radius)
+        return origin + offset
+
+    @staticmethod
+    def delay_seconds(base_sec: float, jitter_sec: float) -> float:
+        return max(0.0, base_sec + random.uniform(-jitter_sec, jitter_sec))
+
+
 class Sheep:
     def __init__(
         self,
@@ -68,14 +98,19 @@ class Sheep:
         position: Vector2,
         speed: float,
         scale: int,
-        initial_reproduction_cooldown: float = 0.0,
+        no_need_food_sec: float = SHEEP_NO_NEED_FOOD_SEC,
+        timer_to_find_food_sec: float = SHEEP_TIMER_TO_FIND_FOOD_SEC,
+        initial_food_offset_sec: float | None = None,
     ):
         self.id = animal_id
         self.motor = motor
         self.speed = speed
         self.pos = position
-        self.reproduction_cooldown = max(0.0, initial_reproduction_cooldown)
         self.eat_cooldown = 0.0
+        self.no_need_food_sec = max(0.0, no_need_food_sec)
+        self.timer_to_find_food_sec = max(0.0, timer_to_find_food_sec)
+        self.no_need_food_timer = self.no_need_food_sec
+        self.find_food_timer = self.timer_to_find_food_sec
         self.is_alive = True
 
         initial_angle = random.uniform(0.0, math.tau)
@@ -85,6 +120,22 @@ class Sheep:
         self.base_radius = scale * 0.38
         self.motion_frame = random.uniform(0.0, float(ANIM_FRAME_COUNT))
         self.target_grass_id: int | None = None
+        self.reset_food_cycle(initial_food_offset_sec)
+
+    def reset_food_cycle(self, initial_offset_sec: float | None = None) -> None:
+        total_cycle = self.no_need_food_sec + self.timer_to_find_food_sec
+        if initial_offset_sec is None:
+            self.no_need_food_timer = self.no_need_food_sec
+            self.find_food_timer = self.timer_to_find_food_sec
+            return
+
+        offset = max(0.0, min(total_cycle, initial_offset_sec))
+        if offset < self.no_need_food_sec:
+            self.no_need_food_timer = self.no_need_food_sec - offset
+            self.find_food_timer = self.timer_to_find_food_sec
+        else:
+            self.no_need_food_timer = 0.0
+            self.find_food_timer = max(0.0, total_cycle - offset)
 
     def move(self, dt: float, displacement_scale: float) -> None:
         self.pos, self.vel = self.motor.advance(
@@ -96,16 +147,32 @@ class Sheep:
             displacement_scale,
         )
 
-        if self.reproduction_cooldown > 0.0:
-            self.reproduction_cooldown = max(0.0, self.reproduction_cooldown - dt)
         if self.eat_cooldown > 0.0:
             self.eat_cooldown = max(0.0, self.eat_cooldown - dt)
 
     def act(self, world: "World", dt: float) -> None:
-        _ = dt
+        if not self._can_search_food(world, dt):
+            world.clear_sheep_grass_target(self)
+            return
+        if self.eat_cooldown > 0.0:
+            world.clear_sheep_grass_target(self)
+            return
+
         self.try_acquire_grass_target(world)
         self.try_eat_grass(world)
-        self.try_reproduce(world)
+
+    def _can_search_food(self, world: "World", dt: float) -> bool:
+        if self.id in world.pending_dead_ids:
+            return False
+        if self.no_need_food_timer > 0.0:
+            self.no_need_food_timer = max(0.0, self.no_need_food_timer - dt)
+            return False
+
+        self.find_food_timer = max(0.0, self.find_food_timer - dt)
+        if self.find_food_timer <= 0.0:
+            world.mark_dead(self)
+            return False
+        return True
 
     def try_acquire_grass_target(self, world: "World") -> None:
         if self.id in world.pending_dead_ids:
@@ -114,10 +181,6 @@ class Sheep:
             return
 
         world.validate_sheep_grass_target(self)
-
-        if self.eat_cooldown > 0.0:
-            world.clear_sheep_grass_target(self)
-            return
 
         if self.target_grass_id is not None:
             target = world.grass_by_id.get(self.target_grass_id)
@@ -142,7 +205,6 @@ class Sheep:
         if self.eat_cooldown > 0.0:
             return
 
-        # Circle (sheep) against axis-aligned square (grass).
         half_grass_size = PLANT_SCALE * 0.5
         search_radius = self.base_radius + (half_grass_size * math.sqrt(2.0))
         nearby = world.get_nearby_grass(self.pos, search_radius)
@@ -160,60 +222,24 @@ class Sheep:
                 self.eat(plant, world)
                 return
 
-    def try_reproduce(self, world: "World") -> None:
-        if not self.can_reproduce() or self.id in world.pending_dead_ids:
-            return
-
-        search_radius = self.base_radius * 2.2
-        nearby = world.get_nearby_sheep(self.pos, search_radius, exclude=self.id)
-        for partner in nearby:
-            if partner.id in world.pending_dead_ids:
-                continue
-            if partner.id <= self.id:
-                continue
-            min_dist = self.base_radius + partner.base_radius
-            if (partner.pos - self.pos).length_squared() >= min_dist * min_dist:
-                continue
-
-            child = self.reproduce(partner, world)
-            if child is not None:
-                world.spawn_sheep(child)
-            return
-
     def eat(self, target_plant: "Plant", world: "World") -> None:
         world.mark_dead(target_plant)
+        world.clear_sheep_grass_target(self)
         self.eat_cooldown = SHEEP_EAT_COOLDOWN_SEC
+        self.reset_food_cycle()
+
+        if SHEEP_TYPE_OF_REPRODUCTION == "asexual":
+            world.queue_asexual_birth(
+                "sheep",
+                self.id,
+                AsexualReproduction.delay_seconds(
+                    SHEEP_ASEXUAL_REPRODUCTION_DELAY_SEC,
+                    SHEEP_ASEXUAL_REPRODUCTION_DELAY_JITTER_SEC,
+                ),
+            )
 
     def die(self) -> None:
         self.is_alive = False
-
-    def can_reproduce(self) -> bool:
-        return self.is_alive and self.reproduction_cooldown <= 0.0
-
-    def reproduce(self, partner: "Sheep", world: "World") -> "Sheep | None":
-        if not self.can_reproduce() or not partner.can_reproduce():
-            return None
-        if not world.can_spawn_sheep():
-            return None
-
-        child_id = world.allocate_id()
-        midpoint = (self.pos + partner.pos) * 0.5
-        offset = Vector2(random.uniform(-1.0, 1.0), random.uniform(-1.0, 1.0))
-        if offset.length_squared() < 1e-6:
-            offset = Vector2(1.0, 0.0)
-        offset = offset.normalize() * random.uniform(0.0, self.base_radius)
-
-        child = Sheep(
-            animal_id=child_id,
-            motor=TargetStraightMotor(),
-            position=midpoint + offset,
-            speed=SHEEP_SPEED,
-            scale=SHEEP_SCALE,
-            initial_reproduction_cooldown=SHEEP_REPRODUCTION_COOLDOWN_SEC,
-        )
-        self.reproduction_cooldown = SHEEP_REPRODUCTION_COOLDOWN_SEC
-        partner.reproduction_cooldown = SHEEP_REPRODUCTION_COOLDOWN_SEC
-        return child
 
 
 class Wolf:
@@ -224,11 +250,18 @@ class Wolf:
         position: Vector2,
         speed: float,
         scale: int,
+        no_need_food_sec: float = WOLF_NO_NEED_FOOD_SEC,
+        timer_to_find_food_sec: float = WOLF_TIMER_TO_FIND_FOOD_SEC,
+        initial_food_offset_sec: float | None = None,
     ):
         self.id = animal_id
         self.motor = motor
         self.speed = speed
         self.pos = position
+        self.no_need_food_sec = max(0.0, no_need_food_sec)
+        self.timer_to_find_food_sec = max(0.0, timer_to_find_food_sec)
+        self.no_need_food_timer = self.no_need_food_sec
+        self.find_food_timer = self.timer_to_find_food_sec
         self.is_alive = True
 
         initial_angle = random.uniform(0.0, math.tau)
@@ -237,6 +270,22 @@ class Wolf:
         )
         self.base_radius = scale * 0.38
         self.motion_frame = random.uniform(0.0, float(ANIM_FRAME_COUNT))
+        self.reset_food_cycle(initial_food_offset_sec)
+
+    def reset_food_cycle(self, initial_offset_sec: float | None = None) -> None:
+        total_cycle = self.no_need_food_sec + self.timer_to_find_food_sec
+        if initial_offset_sec is None:
+            self.no_need_food_timer = self.no_need_food_sec
+            self.find_food_timer = self.timer_to_find_food_sec
+            return
+
+        offset = max(0.0, min(total_cycle, initial_offset_sec))
+        if offset < self.no_need_food_sec:
+            self.no_need_food_timer = self.no_need_food_sec - offset
+            self.find_food_timer = self.timer_to_find_food_sec
+        else:
+            self.no_need_food_timer = 0.0
+            self.find_food_timer = max(0.0, total_cycle - offset)
 
     def move(self, dt: float, displacement_scale: float) -> None:
         self.pos, self.vel = self.motor.advance(
@@ -249,13 +298,30 @@ class Wolf:
         )
 
     def act(self, world: "World", dt: float) -> None:
-        _ = dt
+        if not self._can_search_food(world, dt):
+            if isinstance(self.motor, TargetStraightMotor):
+                self.motor.clear_target()
+            return
+
         if isinstance(self.motor, TargetStraightMotor):
             if not self.motor.target_acquired:
                 nearest_sheep_pos = world.get_nearest_sheep(self.pos)
                 if nearest_sheep_pos is not None:
                     self.motor.set_target(nearest_sheep_pos)
         self.try_eat(world)
+
+    def _can_search_food(self, world: "World", dt: float) -> bool:
+        if self.id in world.pending_dead_ids:
+            return False
+        if self.no_need_food_timer > 0.0:
+            self.no_need_food_timer = max(0.0, self.no_need_food_timer - dt)
+            return False
+
+        self.find_food_timer = max(0.0, self.find_food_timer - dt)
+        if self.find_food_timer <= 0.0:
+            world.mark_dead(self)
+            return False
+        return True
 
     def try_eat(self, world: "World") -> None:
         if self.id in world.pending_dead_ids:
@@ -273,13 +339,22 @@ class Wolf:
 
     def eat(self, target_sheep: Sheep, world: "World") -> None:
         world.mark_dead(target_sheep)
+        if isinstance(self.motor, TargetStraightMotor):
+            self.motor.clear_target()
+        self.reset_food_cycle()
+
+        if WOLF_TYPE_OF_REPRODUCTION == "asexual":
+            world.queue_asexual_birth(
+                "wolf",
+                self.id,
+                AsexualReproduction.delay_seconds(
+                    WOLF_ASEXUAL_REPRODUCTION_DELAY_SEC,
+                    WOLF_ASEXUAL_REPRODUCTION_DELAY_JITTER_SEC,
+                ),
+            )
 
     def die(self) -> None:
         self.is_alive = False
-
-    def reproduce(self) -> None:
-        # Placeholder for future wolf reproduction behavior.
-        return
 
 
 class Plant:
@@ -365,6 +440,8 @@ class World:
         self.grass_by_id: dict[int, Plant] = {}
 
         self.pending_sheep_births: list[Sheep] = []
+        self.pending_wolf_births: list[Wolf] = []
+        self.pending_asexual_births: list[PendingAsexualBirth] = []
         self.pending_grass_births: list[Plant] = []
         self.pending_dead_ids: set[int] = set()
         self.grass_target_locks: dict[int, int] = {}
@@ -377,6 +454,9 @@ class World:
                 position=Vector2(random.uniform(0, WIDTH), random.uniform(0, HEIGHT)),
                 speed=SHEEP_SPEED,
                 scale=SHEEP_SCALE,
+                initial_food_offset_sec=self._random_initial_food_offset(
+                    SHEEP_NO_NEED_FOOD_SEC, SHEEP_TIMER_TO_FIND_FOOD_SEC
+                ),
             )
             self.sheep_by_id[sid] = sheep
             self._bounce_sheep_in_bounds(sheep)
@@ -390,6 +470,9 @@ class World:
                 position=Vector2(random.uniform(0, WIDTH), random.uniform(0, HEIGHT)),
                 speed=WOLF_SPEED,
                 scale=WOLF_SCALE,
+                initial_food_offset_sec=self._random_initial_food_offset(
+                    WOLF_NO_NEED_FOOD_SEC, WOLF_TIMER_TO_FIND_FOOD_SEC
+                ),
             )
             self.wolf_by_id[wid] = wolf
             self._bounce_wolf_in_bounds(wolf)
@@ -471,6 +554,70 @@ class World:
         self._next_id += 1
         return value
 
+    @staticmethod
+    def _random_initial_food_offset(
+        no_need_food_sec: float, timer_to_find_food_sec: float
+    ) -> float:
+        total_cycle = no_need_food_sec + timer_to_find_food_sec
+        if total_cycle <= 1e-6:
+            return 0.0
+        return random.uniform(0.0, max(0.0, total_cycle - 1e-6))
+
+    def queue_asexual_birth(
+        self, species: str, parent_id: int, delay_sec: float
+    ) -> None:
+        self.pending_asexual_births.append(
+            PendingAsexualBirth(species, parent_id, delay_sec)
+        )
+
+    def _create_sheep_child_from_parent(self, parent: Sheep) -> Sheep | None:
+        if not self.can_spawn_sheep():
+            return None
+        child_id = self.allocate_id()
+        return Sheep(
+            animal_id=child_id,
+            motor=TargetStraightMotor(),
+            position=AsexualReproduction.spawn_position(parent.pos, parent.base_radius),
+            speed=SHEEP_SPEED,
+            scale=SHEEP_SCALE,
+        )
+
+    def _create_wolf_child_from_parent(self, parent: Wolf) -> Wolf:
+        child_id = self.allocate_id()
+        return Wolf(
+            animal_id=child_id,
+            motor=TargetStraightMotor(),
+            position=AsexualReproduction.spawn_position(parent.pos, parent.base_radius),
+            speed=WOLF_SPEED,
+            scale=WOLF_SCALE,
+        )
+
+    def _update_pending_asexual_births(self, dt: float) -> None:
+        remaining: list[PendingAsexualBirth] = []
+        for pending in self.pending_asexual_births:
+            pending.delay_sec -= dt
+            if pending.delay_sec > 0.0:
+                remaining.append(pending)
+                continue
+
+            if pending.species == "sheep":
+                parent = self.sheep_by_id.get(pending.parent_id)
+                if parent is None or parent.id in self.pending_dead_ids:
+                    continue
+                child = self._create_sheep_child_from_parent(parent)
+                if child is not None:
+                    self.spawn_sheep(child)
+                continue
+
+            if pending.species == "wolf":
+                parent = self.wolf_by_id.get(pending.parent_id)
+                if parent is None or parent.id in self.pending_dead_ids:
+                    continue
+                self.spawn_wolf(self._create_wolf_child_from_parent(parent))
+                continue
+
+        self.pending_asexual_births = remaining
+
     def all_agents(self) -> list[Agent]:
         return [*self.sheep_by_id.values(), *self.wolf_by_id.values()]
 
@@ -522,6 +669,11 @@ class World:
             self._bounce_sheep_in_bounds(sheep)
             self._retarget_sheep_to_nearest_grass(sheep)
             self.pending_sheep_births.append(sheep)
+
+    def spawn_wolf(self, wolf: Wolf) -> None:
+        self._bounce_wolf_in_bounds(wolf)
+        self._retarget_wolf_to_nearest_sheep(wolf)
+        self.pending_wolf_births.append(wolf)
 
     def spawn_grass(self, plant: Plant) -> None:
         if self.can_spawn_grass() and self.can_place_grass(plant):
@@ -705,6 +857,9 @@ class World:
     def _retarget_wolf_to_nearest_sheep(self, wolf: Wolf) -> None:
         if not isinstance(wolf.motor, TargetStraightMotor):
             return
+        if wolf.no_need_food_timer > 0.0 or wolf.find_food_timer <= 0.0:
+            wolf.motor.clear_target()
+            return
         nearest_sheep_pos = self.get_nearest_sheep(wolf.pos)
         if nearest_sheep_pos is None:
             wolf.motor.clear_target()
@@ -715,6 +870,9 @@ class World:
         if not isinstance(sheep.motor, TargetStraightMotor):
             return
         self.validate_sheep_grass_target(sheep)
+        if sheep.no_need_food_timer > 0.0 or sheep.find_food_timer <= 0.0:
+            self.clear_sheep_grass_target(sheep)
+            return
         if sheep.eat_cooldown > 0.0:
             self.clear_sheep_grass_target(sheep)
             return
@@ -923,6 +1081,13 @@ class World:
                 self.sheep_by_id[child.id] = child
             self.pending_sheep_births.clear()
 
+        if self.pending_wolf_births:
+            for child in self.pending_wolf_births:
+                if child.id in self.wolf_by_id:
+                    continue
+                self.wolf_by_id[child.id] = child
+            self.pending_wolf_births.clear()
+
         if self.pending_grass_births:
             for child in self.pending_grass_births:
                 if child.id in self.grass_by_id:
@@ -936,6 +1101,7 @@ class World:
     def step(self, dt: float) -> None:
         self._move_agents(dt)
         self._resolve_physics_collisions()
+        self._update_pending_asexual_births(dt)
         self._act_agents(dt)
         self._update_grass(dt)
         self._try_random_grass_spawn(dt)
