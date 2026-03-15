@@ -67,6 +67,86 @@ GRAPH_SAMPLE_INTERVAL_SEC = 0.12
 SAVE_TO_FILE = False
 HEADLESS = False
 
+SIMULATION_CONTROL_SPECS = [
+    {"key": "NUM_SHEEP", "label": "Init sheep", "minimum": 0.0, "maximum": 500.0, "step": 1.0, "integer": True, "decimals": 0},
+    {"key": "NUM_WOLVES", "label": "Init wolves", "minimum": 0.0, "maximum": 200.0, "step": 1.0, "integer": True, "decimals": 0},
+    {"key": "INITIAL_PLANTS", "label": "Init grass", "minimum": 0.0, "maximum": 900.0, "step": 1.0, "integer": True, "decimals": 0},
+    {"key": "MAX_SHEEP", "label": "Max sheep", "minimum": 0.0, "maximum": 800.0, "step": 1.0, "integer": True, "decimals": 0},
+    {"key": "MAX_WOLVES", "label": "Max wolves", "minimum": 0.0, "maximum": 300.0, "step": 1.0, "integer": True, "decimals": 0},
+    {"key": "MAX_GRASS", "label": "Max grass", "minimum": 0.0, "maximum": 1200.0, "step": 1.0, "integer": True, "decimals": 0},
+    {"key": "SHEEP_SPEED", "label": "Sheep speed", "minimum": 0.0, "maximum": 120.0, "step": 0.5, "integer": False, "decimals": 1},
+    {"key": "WOLF_SPEED", "label": "Wolf speed", "minimum": 0.0, "maximum": 120.0, "step": 0.5, "integer": False, "decimals": 1},
+    {"key": "PLANT_GROWTH_SEC", "label": "Grass growth", "minimum": 0.0, "maximum": 12.0, "step": 0.1, "integer": False, "decimals": 1},
+    {"key": "PLANT_REPRODUCTION_PERIOD_SEC", "label": "Grass spawn sec", "minimum": 0.0, "maximum": 12.0, "step": 0.1, "integer": False, "decimals": 1},
+    {"key": "PLANT_NEARBY_LIMIT", "label": "Grass nearby cap", "minimum": 0.0, "maximum": 12.0, "step": 1.0, "integer": True, "decimals": 0},
+    {"key": "PLANT_RANDOM_SPAWN_CHANCE_PER_SEC", "label": "Grass random spawn", "minimum": 0.0, "maximum": 0.2, "step": 0.001, "integer": False, "decimals": 3},
+    {"key": "SHEEP_EAT_COOLDOWN_SEC", "label": "Sheep eat cooldown", "minimum": 0.0, "maximum": 15.0, "step": 0.1, "integer": False, "decimals": 1},
+    {"key": "SHEEP_NO_NEED_FOOD_SEC", "label": "Sheep idle food sec", "minimum": 0.0, "maximum": 15.0, "step": 0.1, "integer": False, "decimals": 1},
+    {"key": "SHEEP_TIMER_TO_FIND_FOOD_SEC", "label": "Sheep find food sec", "minimum": 0.0, "maximum": 20.0, "step": 0.1, "integer": False, "decimals": 1},
+    {"key": "WOLF_NO_NEED_FOOD_SEC", "label": "Wolf idle food sec", "minimum": 0.0, "maximum": 15.0, "step": 0.1, "integer": False, "decimals": 1},
+    {"key": "WOLF_TIMER_TO_FIND_FOOD_SEC", "label": "Wolf find food sec", "minimum": 0.0, "maximum": 20.0, "step": 0.1, "integer": False, "decimals": 1},
+]
+
+
+def default_simulation_settings() -> dict[str, float]:
+    return {
+        "NUM_SHEEP": float(NUM_SHEEP),
+        "NUM_WOLVES": float(NUM_WOLVES),
+        "INITIAL_PLANTS": float(INITIAL_PLANTS),
+        "MAX_SHEEP": float(MAX_SHEEP),
+        "MAX_WOLVES": float(MAX_WOLVES),
+        "MAX_GRASS": float(MAX_GRASS),
+        "SHEEP_SPEED": float(SHEEP_SPEED),
+        "WOLF_SPEED": float(WOLF_SPEED),
+        "PLANT_GROWTH_SEC": float(PLANT_GROWTH_SEC),
+        "PLANT_REPRODUCTION_PERIOD_SEC": float(PLANT_REPRODUCTION_PERIOD_SEC),
+        "PLANT_NEARBY_LIMIT": float(PLANT_NEARBY_LIMIT),
+        "PLANT_RANDOM_SPAWN_CHANCE_PER_SEC": float(PLANT_RANDOM_SPAWN_CHANCE_PER_SEC),
+        "SHEEP_EAT_COOLDOWN_SEC": float(SHEEP_EAT_COOLDOWN_SEC),
+        "SHEEP_NO_NEED_FOOD_SEC": float(SHEEP_NO_NEED_FOOD_SEC),
+        "SHEEP_TIMER_TO_FIND_FOOD_SEC": float(SHEEP_TIMER_TO_FIND_FOOD_SEC),
+        "WOLF_NO_NEED_FOOD_SEC": float(WOLF_NO_NEED_FOOD_SEC),
+        "WOLF_TIMER_TO_FIND_FOOD_SEC": float(WOLF_TIMER_TO_FIND_FOOD_SEC),
+    }
+
+
+def apply_simulation_settings(settings: dict[str, float]) -> None:
+    global NUM_SHEEP
+    global NUM_WOLVES
+    global INITIAL_PLANTS
+    global MAX_SHEEP
+    global MAX_WOLVES
+    global MAX_GRASS
+    global SHEEP_SPEED
+    global WOLF_SPEED
+    global PLANT_GROWTH_SEC
+    global PLANT_REPRODUCTION_PERIOD_SEC
+    global PLANT_NEARBY_LIMIT
+    global PLANT_RANDOM_SPAWN_CHANCE_PER_SEC
+    global SHEEP_EAT_COOLDOWN_SEC
+    global SHEEP_NO_NEED_FOOD_SEC
+    global SHEEP_TIMER_TO_FIND_FOOD_SEC
+    global WOLF_NO_NEED_FOOD_SEC
+    global WOLF_TIMER_TO_FIND_FOOD_SEC
+
+    NUM_SHEEP = max(0, int(round(settings["NUM_SHEEP"])))
+    NUM_WOLVES = max(0, int(round(settings["NUM_WOLVES"])))
+    INITIAL_PLANTS = max(0, int(round(settings["INITIAL_PLANTS"])))
+    MAX_SHEEP = max(NUM_SHEEP, int(round(settings["MAX_SHEEP"])))
+    MAX_WOLVES = max(NUM_WOLVES, int(round(settings["MAX_WOLVES"])))
+    MAX_GRASS = max(INITIAL_PLANTS, int(round(settings["MAX_GRASS"])))
+    SHEEP_SPEED = max(0.0, float(settings["SHEEP_SPEED"]))
+    WOLF_SPEED = max(0.0, float(settings["WOLF_SPEED"]))
+    PLANT_GROWTH_SEC = max(0.0, float(settings["PLANT_GROWTH_SEC"]))
+    PLANT_REPRODUCTION_PERIOD_SEC = max(0.0, float(settings["PLANT_REPRODUCTION_PERIOD_SEC"]))
+    PLANT_NEARBY_LIMIT = max(0, int(round(settings["PLANT_NEARBY_LIMIT"])))
+    PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = max(0.0, float(settings["PLANT_RANDOM_SPAWN_CHANCE_PER_SEC"]))
+    SHEEP_EAT_COOLDOWN_SEC = max(0.0, float(settings["SHEEP_EAT_COOLDOWN_SEC"]))
+    SHEEP_NO_NEED_FOOD_SEC = max(0.0, float(settings["SHEEP_NO_NEED_FOOD_SEC"]))
+    SHEEP_TIMER_TO_FIND_FOOD_SEC = max(0.0, float(settings["SHEEP_TIMER_TO_FIND_FOOD_SEC"]))
+    WOLF_NO_NEED_FOOD_SEC = max(0.0, float(settings["WOLF_NO_NEED_FOOD_SEC"]))
+    WOLF_TIMER_TO_FIND_FOOD_SEC = max(0.0, float(settings["WOLF_TIMER_TO_FIND_FOOD_SEC"]))
+
 
 # ------------------------------------------------------------
 # Agents
@@ -452,7 +532,8 @@ class World:
         self.pending_dead_ids: set[int] = set()
         self.grass_target_locks: dict[int, int] = {}
 
-        for _ in range(NUM_SHEEP):
+        target_initial_sheep = min(NUM_SHEEP, MAX_SHEEP)
+        for _ in range(target_initial_sheep):
             sid = self.allocate_id()
             sheep = Sheep(
                 animal_id=sid,
@@ -1126,11 +1207,11 @@ class World:
 
 
 def main() -> None:
-    world = World()
-    recorder = PopulationRecorder(
-        0.0, len(world.sheep_by_id), len(world.wolf_by_id), len(world.grass_by_id)
-    )
     if HEADLESS:
+        world = World()
+        recorder = PopulationRecorder(
+            0.0, len(world.sheep_by_id), len(world.wolf_by_id), len(world.grass_by_id)
+        )
         print("Headless mode running. Press Ctrl+C in this console to stop.")
 
         sim_time = 0.0
@@ -1161,31 +1242,67 @@ def main() -> None:
                 time.sleep(0.001)
         except KeyboardInterrupt:
             pass
-    else:
-        gui = SimulationGUI(
-            width=WIDTH,
-            height=HEIGHT,
-            fps=FPS,
-            sheep_scale=SHEEP_SCALE,
-            wolf_scale=WOLF_SCALE,
-            grass_scale=PLANT_SCALE,
-            initial_sheep_count=len(world.sheep_by_id),
-            initial_wolf_count=len(world.wolf_by_id),
-            initial_grass_count=len(world.grass_by_id),
-            on_save_sheep=recorder.save_sheep,
-            on_save_wolf=recorder.save_wolf,
-            on_save_grass=recorder.save_grass,
-            plant_growth_sec=PLANT_GROWTH_SEC,
-        )
 
-        sim_time = 0.0
-        sample_accum = 0.0
+        if SAVE_TO_FILE:
+            recorder.save_all()
+        return
 
-        running = True
-        while running:
-            frame_dt = gui.tick()
-            running = gui.handle_events()
+    runtime = {"recorder": PopulationRecorder(0.0, 0, 0, 0)}
+    gui = SimulationGUI(
+        width=WIDTH,
+        height=HEIGHT,
+        fps=FPS,
+        sheep_scale=SHEEP_SCALE,
+        wolf_scale=WOLF_SCALE,
+        grass_scale=PLANT_SCALE,
+        initial_sheep_count=0,
+        initial_wolf_count=0,
+        initial_grass_count=0,
+        on_save_sheep=lambda: runtime["recorder"].save_sheep(),
+        on_save_wolf=lambda: runtime["recorder"].save_wolf(),
+        on_save_grass=lambda: runtime["recorder"].save_grass(),
+        control_specs=SIMULATION_CONTROL_SPECS,
+        control_values=default_simulation_settings(),
+        plant_growth_sec=PLANT_GROWTH_SEC,
+    )
 
+    world: World | None = None
+    sim_time = 0.0
+    sample_accum = 0.0
+
+    running = True
+    while running:
+        frame_dt = gui.tick()
+        running = gui.handle_events()
+
+        if gui.consume_clear_request():
+            world = None
+            runtime["recorder"] = PopulationRecorder(0.0, 0, 0, 0)
+            sim_time = 0.0
+            sample_accum = 0.0
+            gui.set_simulation_loaded(False, paused=True)
+            gui.clear_visuals()
+            gui.reset_population_graphs(0, 0, 0)
+
+        if gui.consume_start_request():
+            apply_simulation_settings(gui.get_control_values())
+            world = World()
+            gui.painter.plant_growth_sec = max(1e-6, PLANT_GROWTH_SEC)
+
+            sheep_count = len(world.sheep_by_id)
+            wolf_count = len(world.wolf_by_id)
+            grass_count = len(world.grass_by_id)
+            runtime["recorder"] = PopulationRecorder(
+                0.0, sheep_count, wolf_count, grass_count
+            )
+            sim_time = 0.0
+            sample_accum = 0.0
+            gui.clear_visuals()
+            gui.reset_population_graphs(sheep_count, wolf_count, grass_count)
+            gui.set_simulation_loaded(True, paused=False)
+
+        step_dt = 0.0
+        if world is not None:
             step_dt = 0.0 if gui.paused else frame_dt
             if step_dt > 0.0:
                 world.step(step_dt)
@@ -1198,18 +1315,20 @@ def main() -> None:
                 sheep_count = len(world.sheep_by_id)
                 wolf_count = len(world.wolf_by_id)
                 grass_count = len(world.grass_by_id)
-                recorder.add_sample(sim_time, sheep_count, wolf_count, grass_count)
+                runtime["recorder"].add_sample(
+                    sim_time, sheep_count, wolf_count, grass_count
+                )
                 gui.add_population_sample(
                     sim_time, sheep_count, wolf_count, grass_count
                 )
 
-            gui.update(frame_dt)
-            gui.draw(world, sim_time, step_dt)
+        gui.update(frame_dt)
+        gui.draw(world, sim_time, step_dt)
 
-        gui.close()
+    gui.close()
 
     if SAVE_TO_FILE:
-        recorder.save_all()
+        runtime["recorder"].save_all()
 
 
 if __name__ == "__main__":
