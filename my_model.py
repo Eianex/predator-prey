@@ -46,7 +46,6 @@ PLANT_NEARBY_RADIUS_MULT = 1.01
 PLANT_NEARBY_LIMIT = 4
 PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.01
 
-SHEEP_EAT_COOLDOWN_SEC = 3
 SHEEP_TYPE_OF_REPRODUCTION = "asexual"
 WOLF_TYPE_OF_REPRODUCTION = "asexual"
 WOLF_EAT_ALL = False
@@ -178,15 +177,6 @@ SIMULATION_CONTROL_SPECS = [
         "decimals": 3,
     },
     {
-        "key": "SHEEP_EAT_COOLDOWN_SEC",
-        "label": "Sheep eat cooldown",
-        "minimum": 0.0,
-        "maximum": 15.0,
-        "step": 0.1,
-        "integer": False,
-        "decimals": 1,
-    },
-    {
         "key": "SHEEP_NO_NEED_FOOD_SEC",
         "label": "Sheep idle food sec",
         "minimum": 0.0,
@@ -239,7 +229,6 @@ def default_simulation_settings() -> dict[str, float]:
         "PLANT_REPRODUCTION_PERIOD_SEC": float(PLANT_REPRODUCTION_PERIOD_SEC),
         "PLANT_NEARBY_LIMIT": float(PLANT_NEARBY_LIMIT),
         "PLANT_RANDOM_SPAWN_CHANCE_PER_SEC": float(PLANT_RANDOM_SPAWN_CHANCE_PER_SEC),
-        "SHEEP_EAT_COOLDOWN_SEC": float(SHEEP_EAT_COOLDOWN_SEC),
         "SHEEP_NO_NEED_FOOD_SEC": float(SHEEP_NO_NEED_FOOD_SEC),
         "SHEEP_TIMER_TO_FIND_FOOD_SEC": float(SHEEP_TIMER_TO_FIND_FOOD_SEC),
         "WOLF_NO_NEED_FOOD_SEC": float(WOLF_NO_NEED_FOOD_SEC),
@@ -260,7 +249,6 @@ def apply_simulation_settings(settings: dict[str, float]) -> None:
     global PLANT_REPRODUCTION_PERIOD_SEC
     global PLANT_NEARBY_LIMIT
     global PLANT_RANDOM_SPAWN_CHANCE_PER_SEC
-    global SHEEP_EAT_COOLDOWN_SEC
     global SHEEP_NO_NEED_FOOD_SEC
     global SHEEP_TIMER_TO_FIND_FOOD_SEC
     global WOLF_NO_NEED_FOOD_SEC
@@ -282,7 +270,6 @@ def apply_simulation_settings(settings: dict[str, float]) -> None:
     PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = max(
         0.0, float(settings["PLANT_RANDOM_SPAWN_CHANCE_PER_SEC"])
     )
-    SHEEP_EAT_COOLDOWN_SEC = max(0.0, float(settings["SHEEP_EAT_COOLDOWN_SEC"]))
     SHEEP_NO_NEED_FOOD_SEC = max(0.0, float(settings["SHEEP_NO_NEED_FOOD_SEC"]))
     SHEEP_TIMER_TO_FIND_FOOD_SEC = max(
         0.0, float(settings["SHEEP_TIMER_TO_FIND_FOOD_SEC"])
@@ -333,7 +320,6 @@ class Sheep:
         self.motor = motor
         self.speed = speed
         self.pos = position
-        self.eat_cooldown = 0.0
         self.no_need_food_sec = max(0.0, no_need_food_sec)
         self.timer_to_find_food_sec = max(0.0, timer_to_find_food_sec)
         self.no_need_food_timer = self.no_need_food_sec
@@ -374,17 +360,10 @@ class Sheep:
             displacement_scale,
         )
 
-        if self.eat_cooldown > 0.0:
-            self.eat_cooldown = max(0.0, self.eat_cooldown - dt)
-
     def act(self, world: "World", dt: float) -> None:
         if not self._can_search_food(world, dt):
             world.clear_sheep_grass_target(self)
             return
-        if self.eat_cooldown > 0.0:
-            world.clear_sheep_grass_target(self)
-            return
-
         self.try_acquire_grass_target(world)
         self.try_eat_grass(world)
 
@@ -429,9 +408,6 @@ class Sheep:
     def try_eat_grass(self, world: "World") -> None:
         if self.id in world.pending_dead_ids:
             return
-        if self.eat_cooldown > 0.0:
-            return
-
         half_grass_size = PLANT_SCALE * 0.5
         search_radius = self.base_radius + (half_grass_size * math.sqrt(2.0))
         nearby = world.get_nearby_grass(self.pos, search_radius)
@@ -452,7 +428,6 @@ class Sheep:
     def eat(self, target_plant: "Plant", world: "World") -> None:
         world.mark_dead(target_plant)
         world.clear_sheep_grass_target(self)
-        self.eat_cooldown = SHEEP_EAT_COOLDOWN_SEC
         self.reset_food_cycle()
 
         if SHEEP_TYPE_OF_REPRODUCTION == "asexual":
@@ -1112,9 +1087,6 @@ class World:
             return
         self.validate_sheep_grass_target(sheep)
         if sheep.no_need_food_timer > 0.0 or sheep.find_food_timer <= 0.0:
-            self.clear_sheep_grass_target(sheep)
-            return
-        if sheep.eat_cooldown > 0.0:
             self.clear_sheep_grass_target(sheep)
             return
         if sheep.target_grass_id is not None:
