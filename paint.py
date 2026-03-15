@@ -329,17 +329,17 @@ class Painter:
         rect = rotated.get_rect(center=(agent.pos.x + x_offset, agent.pos.y))
         screen.blit(rotated, rect)
 
-        heading_angle_rad = math.radians(render_angle)
-        direction = Vector2(math.sin(heading_angle_rad), math.cos(heading_angle_rad))
-        line_start = Vector2(agent.pos.x + x_offset, agent.pos.y)
-        line_end = line_start + direction * (agent.base_radius + 18)
-        pygame.draw.line(
-            screen,
-            (245, 245, 245),
-            (line_start.x, line_start.y),
-            (line_end.x, line_end.y),
-            2,
-        )
+        # heading_angle_rad = math.radians(render_angle)
+        # direction = Vector2(math.sin(heading_angle_rad), math.cos(heading_angle_rad))
+        # line_start = Vector2(agent.pos.x + x_offset, agent.pos.y)
+        # line_end = line_start + direction * (agent.base_radius + 18)
+        # pygame.draw.line(
+        # screen,
+        # (245, 245, 245),
+        # (line_start.x, line_start.y),
+        # (line_end.x, line_end.y),
+        # 2,
+        # )
 
     def _draw_plant(
         self,

@@ -68,23 +68,159 @@ SAVE_TO_FILE = False
 HEADLESS = False
 
 SIMULATION_CONTROL_SPECS = [
-    {"key": "NUM_SHEEP", "label": "Init sheep", "minimum": 0.0, "maximum": 500.0, "step": 1.0, "integer": True, "decimals": 0},
-    {"key": "NUM_WOLVES", "label": "Init wolves", "minimum": 0.0, "maximum": 200.0, "step": 1.0, "integer": True, "decimals": 0},
-    {"key": "INITIAL_PLANTS", "label": "Init grass", "minimum": 0.0, "maximum": 900.0, "step": 1.0, "integer": True, "decimals": 0},
-    {"key": "MAX_SHEEP", "label": "Max sheep", "minimum": 0.0, "maximum": 800.0, "step": 1.0, "integer": True, "decimals": 0},
-    {"key": "MAX_WOLVES", "label": "Max wolves", "minimum": 0.0, "maximum": 300.0, "step": 1.0, "integer": True, "decimals": 0},
-    {"key": "MAX_GRASS", "label": "Max grass", "minimum": 0.0, "maximum": 1200.0, "step": 1.0, "integer": True, "decimals": 0},
-    {"key": "SHEEP_SPEED", "label": "Sheep speed", "minimum": 0.0, "maximum": 120.0, "step": 0.5, "integer": False, "decimals": 1},
-    {"key": "WOLF_SPEED", "label": "Wolf speed", "minimum": 0.0, "maximum": 120.0, "step": 0.5, "integer": False, "decimals": 1},
-    {"key": "PLANT_GROWTH_SEC", "label": "Grass growth", "minimum": 0.0, "maximum": 12.0, "step": 0.1, "integer": False, "decimals": 1},
-    {"key": "PLANT_REPRODUCTION_PERIOD_SEC", "label": "Grass spawn sec", "minimum": 0.0, "maximum": 12.0, "step": 0.1, "integer": False, "decimals": 1},
-    {"key": "PLANT_NEARBY_LIMIT", "label": "Grass nearby cap", "minimum": 0.0, "maximum": 12.0, "step": 1.0, "integer": True, "decimals": 0},
-    {"key": "PLANT_RANDOM_SPAWN_CHANCE_PER_SEC", "label": "Grass random spawn", "minimum": 0.0, "maximum": 0.2, "step": 0.001, "integer": False, "decimals": 3},
-    {"key": "SHEEP_EAT_COOLDOWN_SEC", "label": "Sheep eat cooldown", "minimum": 0.0, "maximum": 15.0, "step": 0.1, "integer": False, "decimals": 1},
-    {"key": "SHEEP_NO_NEED_FOOD_SEC", "label": "Sheep idle food sec", "minimum": 0.0, "maximum": 15.0, "step": 0.1, "integer": False, "decimals": 1},
-    {"key": "SHEEP_TIMER_TO_FIND_FOOD_SEC", "label": "Sheep find food sec", "minimum": 0.0, "maximum": 20.0, "step": 0.1, "integer": False, "decimals": 1},
-    {"key": "WOLF_NO_NEED_FOOD_SEC", "label": "Wolf idle food sec", "minimum": 0.0, "maximum": 15.0, "step": 0.1, "integer": False, "decimals": 1},
-    {"key": "WOLF_TIMER_TO_FIND_FOOD_SEC", "label": "Wolf find food sec", "minimum": 0.0, "maximum": 20.0, "step": 0.1, "integer": False, "decimals": 1},
+    {
+        "key": "NUM_SHEEP",
+        "label": "Init sheep",
+        "minimum": 0.0,
+        "maximum": 500.0,
+        "step": 1.0,
+        "integer": True,
+        "decimals": 0,
+    },
+    {
+        "key": "NUM_WOLVES",
+        "label": "Init wolves",
+        "minimum": 0.0,
+        "maximum": 200.0,
+        "step": 1.0,
+        "integer": True,
+        "decimals": 0,
+    },
+    {
+        "key": "INITIAL_PLANTS",
+        "label": "Init grass",
+        "minimum": 0.0,
+        "maximum": 900.0,
+        "step": 1.0,
+        "integer": True,
+        "decimals": 0,
+    },
+    {
+        "key": "MAX_SHEEP",
+        "label": "Max sheep",
+        "minimum": 0.0,
+        "maximum": 800.0,
+        "step": 1.0,
+        "integer": True,
+        "decimals": 0,
+    },
+    {
+        "key": "MAX_WOLVES",
+        "label": "Max wolves",
+        "minimum": 0.0,
+        "maximum": 300.0,
+        "step": 1.0,
+        "integer": True,
+        "decimals": 0,
+    },
+    {
+        "key": "MAX_GRASS",
+        "label": "Max grass",
+        "minimum": 0.0,
+        "maximum": 1200.0,
+        "step": 1.0,
+        "integer": True,
+        "decimals": 0,
+    },
+    {
+        "key": "SHEEP_SPEED",
+        "label": "Sheep speed",
+        "minimum": 0.0,
+        "maximum": 120.0,
+        "step": 0.5,
+        "integer": False,
+        "decimals": 1,
+    },
+    {
+        "key": "WOLF_SPEED",
+        "label": "Wolf speed",
+        "minimum": 0.0,
+        "maximum": 120.0,
+        "step": 0.5,
+        "integer": False,
+        "decimals": 1,
+    },
+    {
+        "key": "PLANT_GROWTH_SEC",
+        "label": "Grass growth",
+        "minimum": 0.0,
+        "maximum": 12.0,
+        "step": 0.1,
+        "integer": False,
+        "decimals": 1,
+    },
+    {
+        "key": "PLANT_REPRODUCTION_PERIOD_SEC",
+        "label": "Grass spawn sec",
+        "minimum": 0.0,
+        "maximum": 12.0,
+        "step": 0.1,
+        "integer": False,
+        "decimals": 1,
+    },
+    {
+        "key": "PLANT_NEARBY_LIMIT",
+        "label": "Grass nearby cap",
+        "minimum": 0.0,
+        "maximum": 12.0,
+        "step": 1.0,
+        "integer": True,
+        "decimals": 0,
+    },
+    {
+        "key": "PLANT_RANDOM_SPAWN_CHANCE_PER_SEC",
+        "label": "Grass random spawn",
+        "minimum": 0.0,
+        "maximum": 0.2,
+        "step": 0.001,
+        "integer": False,
+        "decimals": 3,
+    },
+    {
+        "key": "SHEEP_EAT_COOLDOWN_SEC",
+        "label": "Sheep eat cooldown",
+        "minimum": 0.0,
+        "maximum": 15.0,
+        "step": 0.1,
+        "integer": False,
+        "decimals": 1,
+    },
+    {
+        "key": "SHEEP_NO_NEED_FOOD_SEC",
+        "label": "Sheep idle food sec",
+        "minimum": 0.0,
+        "maximum": 15.0,
+        "step": 0.1,
+        "integer": False,
+        "decimals": 1,
+    },
+    {
+        "key": "SHEEP_TIMER_TO_FIND_FOOD_SEC",
+        "label": "Sheep find food sec",
+        "minimum": 0.0,
+        "maximum": 20.0,
+        "step": 0.1,
+        "integer": False,
+        "decimals": 1,
+    },
+    {
+        "key": "WOLF_NO_NEED_FOOD_SEC",
+        "label": "Wolf idle food sec",
+        "minimum": 0.0,
+        "maximum": 15.0,
+        "step": 0.1,
+        "integer": False,
+        "decimals": 1,
+    },
+    {
+        "key": "WOLF_TIMER_TO_FIND_FOOD_SEC",
+        "label": "Wolf find food sec",
+        "minimum": 0.0,
+        "maximum": 20.0,
+        "step": 0.1,
+        "integer": False,
+        "decimals": 1,
+    },
 ]
 
 
@@ -138,14 +274,22 @@ def apply_simulation_settings(settings: dict[str, float]) -> None:
     SHEEP_SPEED = max(0.0, float(settings["SHEEP_SPEED"]))
     WOLF_SPEED = max(0.0, float(settings["WOLF_SPEED"]))
     PLANT_GROWTH_SEC = max(0.0, float(settings["PLANT_GROWTH_SEC"]))
-    PLANT_REPRODUCTION_PERIOD_SEC = max(0.0, float(settings["PLANT_REPRODUCTION_PERIOD_SEC"]))
+    PLANT_REPRODUCTION_PERIOD_SEC = max(
+        0.0, float(settings["PLANT_REPRODUCTION_PERIOD_SEC"])
+    )
     PLANT_NEARBY_LIMIT = max(0, int(round(settings["PLANT_NEARBY_LIMIT"])))
-    PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = max(0.0, float(settings["PLANT_RANDOM_SPAWN_CHANCE_PER_SEC"]))
+    PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = max(
+        0.0, float(settings["PLANT_RANDOM_SPAWN_CHANCE_PER_SEC"])
+    )
     SHEEP_EAT_COOLDOWN_SEC = max(0.0, float(settings["SHEEP_EAT_COOLDOWN_SEC"]))
     SHEEP_NO_NEED_FOOD_SEC = max(0.0, float(settings["SHEEP_NO_NEED_FOOD_SEC"]))
-    SHEEP_TIMER_TO_FIND_FOOD_SEC = max(0.0, float(settings["SHEEP_TIMER_TO_FIND_FOOD_SEC"]))
+    SHEEP_TIMER_TO_FIND_FOOD_SEC = max(
+        0.0, float(settings["SHEEP_TIMER_TO_FIND_FOOD_SEC"])
+    )
     WOLF_NO_NEED_FOOD_SEC = max(0.0, float(settings["WOLF_NO_NEED_FOOD_SEC"]))
-    WOLF_TIMER_TO_FIND_FOOD_SEC = max(0.0, float(settings["WOLF_TIMER_TO_FIND_FOOD_SEC"]))
+    WOLF_TIMER_TO_FIND_FOOD_SEC = max(
+        0.0, float(settings["WOLF_TIMER_TO_FIND_FOOD_SEC"])
+    )
 
 
 # ------------------------------------------------------------
