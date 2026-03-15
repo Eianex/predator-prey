@@ -23,6 +23,7 @@ FPS = 60
 ANIM_FRAME_COUNT = 120
 ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
+ANIMATION = False
 
 NUM_SHEEP = 70
 NUM_WOLVES = 16
@@ -1190,6 +1191,8 @@ class World:
     def _displacement_scale(self, agent: Agent) -> float:
         if agent.vel.length_squared() < 1e-6:
             return 0.0
+        if not ANIMATION:
+            return 1.0
 
         frame = agent.motion_frame
         cycle_phase = (frame % ANIM_FRAME_COUNT) / ANIM_FRAME_COUNT
@@ -1204,6 +1207,8 @@ class World:
         return WOLF_STEP_SPEED_MULT_COMPRESS
 
     def _advance_motion_frame(self, agent: Agent, dt: float) -> None:
+        if not ANIMATION:
+            return
         if agent.vel.length_squared() < 1e-6:
             return
         agent.motion_frame = (agent.motion_frame + ANIM_FPS * dt) % ANIM_FRAME_COUNT
@@ -1408,6 +1413,7 @@ def main() -> None:
         control_specs=SIMULATION_CONTROL_SPECS,
         control_values=default_simulation_settings(),
         plant_growth_sec=PLANT_GROWTH_SEC,
+        animation_enabled=ANIMATION,
     )
 
     world: World | None = None

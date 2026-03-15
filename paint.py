@@ -220,9 +220,11 @@ class Painter:
         wolf_scale: int,
         grass_scale: int,
         plant_growth_sec: float,
+        animation_enabled: bool,
     ):
         self.turn_duration_sec = TURN_DURATION_SEC
         self.plant_growth_sec = max(1e-6, plant_growth_sec)
+        self.animation_enabled = animation_enabled
         self.sheep_animation_frames = Painter.load_animation_frames(
             SHEEP_ANIM_DIR,
             "sheep",
@@ -320,8 +322,11 @@ class Painter:
         if len(frames) == 0:
             return
 
-        frame_cursor = agent.motion_frame
-        frame_index = int(frame_cursor) % len(frames)
+        if self.animation_enabled:
+            frame_cursor = agent.motion_frame
+            frame_index = int(frame_cursor) % len(frames)
+        else:
+            frame_index = 0
         base_image = frames[frame_index]
 
         render_angle = -visual.display_angle
@@ -521,6 +526,7 @@ class SimulationGUI:
         control_specs: list[dict],
         control_values: dict[str, float],
         plant_growth_sec: float = DEFAULT_PLANT_GROWTH_SEC,
+        animation_enabled: bool = False,
     ):
         pygame.init()
         pygame.display.set_caption("Wolf-Sheep Prototype")
@@ -570,6 +576,7 @@ class SimulationGUI:
             wolf_scale,
             grass_scale,
             plant_growth_sec=plant_growth_sec,
+            animation_enabled=animation_enabled,
         )
 
         self.controls = self._build_controls(control_specs, control_values)
