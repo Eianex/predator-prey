@@ -1,3 +1,4 @@
+import asyncio
 import math
 import random
 
@@ -16,7 +17,7 @@ from recorder import PopulationRecorder
 # ------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------
-WIDTH, HEIGHT = 1000, 800
+WIDTH, HEIGHT = 800, 800
 FPS = 60
 
 ANIM_FRAME_COUNT = 120
@@ -1330,7 +1331,7 @@ class World:
         self.apply_pending_changes()
 
 
-def main() -> None:
+async def main() -> None:
     runtime = {"recorder": PopulationRecorder(0.0, 0, 0, 0)}
     gui = SimulationGUI(
         width=WIDTH,
@@ -1414,6 +1415,7 @@ def main() -> None:
 
         gui.update(frame_dt)
         gui.draw(world, sim_time, step_dt)
+        await asyncio.sleep(0)
 
     gui.close()
 
@@ -1422,4 +1424,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

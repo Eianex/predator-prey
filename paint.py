@@ -7,8 +7,8 @@ import pygame
 from pygame.math import Vector2
 
 
-CONTROL_PANEL_WIDTH = 340
-GRAPH_PANEL_WIDTH = 400
+CONTROL_PANEL_WIDTH = 350
+GRAPH_PANEL_WIDTH = 350
 PANEL_BG_COLOR = (22, 28, 30)
 PANEL_BORDER_COLOR = (70, 86, 90)
 GRAPH_BG_COLOR = (16, 21, 24)
@@ -571,7 +571,9 @@ class SimulationGUI:
         )
         self.world_x_offset = CONTROL_PANEL_WIDTH
 
-        self.screen = pygame.display.set_mode((self.total_width, self.height))
+        self.screen = pygame.display.set_mode(
+            (self.total_width, self.height), pygame.SCALED
+        )
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("consolas", 18)
         self.small_font = pygame.font.SysFont("consolas", 15)
