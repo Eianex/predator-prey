@@ -571,9 +571,7 @@ class SimulationGUI:
         )
         self.world_x_offset = CONTROL_PANEL_WIDTH
 
-        self.screen = pygame.display.set_mode(
-            (self.total_width, self.height), pygame.SCALED
-        )
+        self.screen = pygame.display.set_mode((self.total_width, self.height))
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("consolas", 18)
         self.small_font = pygame.font.SysFont("consolas", 15)
