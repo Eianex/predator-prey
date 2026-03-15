@@ -339,15 +339,15 @@ class SimulationGUI:
         self.fps = fps
         self.show_graphs = SHOW_GRAPHS
         self.total_width = width + PANEL_WIDTH if self.show_graphs else width
-        self.world_x_offset = PANEL_WIDTH if self.show_graphs else 0
+        self.world_x_offset = 0
 
         self.screen = pygame.display.set_mode((self.total_width, self.height))
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("consolas", 18)
         self.small_font = pygame.font.SysFont("consolas", 15)
 
-        self.panel_rect = pygame.Rect(0, 0, PANEL_WIDTH, self.height)
-        self.world_rect = pygame.Rect(self.world_x_offset, 0, self.width, self.height)
+        self.panel_rect = pygame.Rect(self.width, 0, PANEL_WIDTH, self.height)
+        self.world_rect = pygame.Rect(0, 0, self.width, self.height)
         self.pause_button_rect = pygame.Rect(self.total_width - 118, 10, 108, 30)
         self.paused = False
 
@@ -370,14 +370,14 @@ class SimulationGUI:
             gap = 12
             graph_height = (self.height - margin * 2 - gap * 2) // 3
             self.sheep_graph = PopulationGraph(
-                pygame.Rect(margin, margin, PANEL_WIDTH - margin * 2, graph_height),
+                pygame.Rect(self.width + margin, margin, PANEL_WIDTH - margin * 2, graph_height),
                 "Sheep Population",
                 SHEEP_GRAPH_COLOR,
                 initial_sheep_count,
             )
             self.wolf_graph = PopulationGraph(
                 pygame.Rect(
-                    margin,
+                    self.width + margin,
                     margin + graph_height + gap,
                     PANEL_WIDTH - margin * 2,
                     graph_height,
@@ -388,7 +388,7 @@ class SimulationGUI:
             )
             self.grass_graph = PopulationGraph(
                 pygame.Rect(
-                    margin,
+                    self.width + margin,
                     margin + (graph_height + gap) * 2,
                     PANEL_WIDTH - margin * 2,
                     graph_height,
@@ -458,8 +458,8 @@ class SimulationGUI:
             pygame.draw.line(
                 self.screen,
                 PANEL_BORDER_COLOR,
-                (PANEL_WIDTH, 0),
-                (PANEL_WIDTH, self.height),
+                (self.width, 0),
+                (self.width, self.height),
                 2,
             )
             if self.sheep_graph is not None:

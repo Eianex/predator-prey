@@ -27,6 +27,7 @@ ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 NUM_SHEEP = 70
 NUM_WOLVES = 16
 MAX_SHEEP = 310
+MAX_WOLVES = 80
 MAX_GRASS = 500
 INITIAL_PLANTS = 320
 
@@ -467,7 +468,8 @@ class World:
             self._bounce_sheep_in_bounds(sheep)
             self._retarget_sheep_to_nearest_grass(sheep)
 
-        for _ in range(NUM_WOLVES):
+        target_initial_wolves = min(NUM_WOLVES, MAX_WOLVES)
+        for _ in range(target_initial_wolves):
             wid = self.allocate_id()
             wolf = Wolf(
                 animal_id=wid,
@@ -587,7 +589,9 @@ class World:
             scale=SHEEP_SCALE,
         )
 
-    def _create_wolf_child_from_parent(self, parent: Wolf) -> Wolf:
+    def _create_wolf_child_from_parent(self, parent: Wolf) -> Wolf | None:
+        if not self.can_spawn_wolf():
+            return None
         child_id = self.allocate_id()
         return Wolf(
             animal_id=child_id,
@@ -618,7 +622,9 @@ class World:
                 parent = self.wolf_by_id.get(pending.parent_id)
                 if parent is None or parent.id in self.pending_dead_ids:
                     continue
-                self.spawn_wolf(self._create_wolf_child_from_parent(parent))
+                child = self._create_wolf_child_from_parent(parent)
+                if child is not None:
+                    self.spawn_wolf(child)
                 continue
 
         self.pending_asexual_births = remaining
@@ -635,6 +641,9 @@ class World:
 
     def can_spawn_sheep(self) -> bool:
         return len(self.sheep_by_id) + len(self.pending_sheep_births) < MAX_SHEEP
+
+    def can_spawn_wolf(self) -> bool:
+        return len(self.wolf_by_id) + len(self.pending_wolf_births) < MAX_WOLVES
 
     def can_spawn_grass(self) -> bool:
         return len(self.grass_by_id) + len(self.pending_grass_births) < MAX_GRASS
@@ -676,9 +685,10 @@ class World:
             self.pending_sheep_births.append(sheep)
 
     def spawn_wolf(self, wolf: Wolf) -> None:
-        self._bounce_wolf_in_bounds(wolf)
-        self._retarget_wolf_to_nearest_sheep(wolf)
-        self.pending_wolf_births.append(wolf)
+        if self.can_spawn_wolf():
+            self._bounce_wolf_in_bounds(wolf)
+            self._retarget_wolf_to_nearest_sheep(wolf)
+            self.pending_wolf_births.append(wolf)
 
     def spawn_grass(self, plant: Plant) -> None:
         if self.can_spawn_grass() and self.can_place_grass(plant):
@@ -1090,6 +1100,8 @@ class World:
             for child in self.pending_wolf_births:
                 if child.id in self.wolf_by_id:
                     continue
+                if len(self.wolf_by_id) >= MAX_WOLVES:
+                    break
                 self.wolf_by_id[child.id] = child
             self.pending_wolf_births.clear()
 
