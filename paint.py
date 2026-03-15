@@ -225,6 +225,9 @@ class Painter:
         self.turn_duration_sec = TURN_DURATION_SEC
         self.plant_growth_sec = max(1e-6, plant_growth_sec)
         self.animation_enabled = animation_enabled
+        self.sheep_scale = sheep_scale
+        self.wolf_scale = wolf_scale
+        self.grass_scale = grass_scale
         self.sheep_animation_frames = Painter.load_animation_frames(
             SHEEP_ANIM_DIR,
             "sheep",
@@ -271,6 +274,34 @@ class Painter:
 
     def clear(self) -> None:
         self.visuals_by_id.clear()
+
+    def set_config(
+        self,
+        sheep_scale: int,
+        wolf_scale: int,
+        grass_scale: int,
+        plant_growth_sec: float,
+    ) -> None:
+        self.plant_growth_sec = max(1e-6, plant_growth_sec)
+        self.sheep_scale = sheep_scale
+        self.wolf_scale = wolf_scale
+        self.grass_scale = grass_scale
+        self.sheep_animation_frames = Painter.load_animation_frames(
+            SHEEP_ANIM_DIR,
+            "sheep",
+            sheep_scale,
+        )
+        self.wolf_animation_frames = Painter.load_animation_frames(
+            WOLF_ANIM_DIR,
+            "wolf",
+            wolf_scale,
+        )
+        self.plant_animation_frames = Painter.load_animation_frames(
+            PLANT_ANIM_DIR,
+            "plant",
+            grass_scale,
+        )
+        self.clear()
 
     def _ensure_visual(self, agent) -> AnimalVisual:
         visual = self.visuals_by_id.get(agent.id)
@@ -656,6 +687,20 @@ class SimulationGUI:
 
     def clear_visuals(self) -> None:
         self.painter.clear()
+
+    def set_painter_config(
+        self,
+        sheep_scale: int,
+        wolf_scale: int,
+        grass_scale: int,
+        plant_growth_sec: float,
+    ) -> None:
+        self.painter.set_config(
+            sheep_scale=sheep_scale,
+            wolf_scale=wolf_scale,
+            grass_scale=grass_scale,
+            plant_growth_sec=plant_growth_sec,
+        )
 
     def set_simulation_loaded(self, loaded: bool, paused: bool) -> None:
         self.simulation_loaded = loaded
