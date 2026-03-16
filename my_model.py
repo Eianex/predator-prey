@@ -24,11 +24,13 @@ ANIM_FRAME_COUNT = 120
 ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 ANIMATION = False
+SAVE_TO_FILE = False
+HEADLESS = True
 
 NUM_SHEEP = 70
-NUM_WOLVES = 16
-MAX_SHEEP = 300
-MAX_WOLVES = 100
+NUM_WOLVES = 50
+MAX_SHEEP = 500
+MAX_WOLVES = 200
 MAX_GRASS = 500
 INITIAL_PLANTS = 300
 
@@ -64,8 +66,7 @@ WOLF_STEP_SPEED_MULT_COMPRESS = 2 - WOLF_STEP_SPEED_MULT_EXPAND
 
 
 GRAPH_SAMPLE_INTERVAL_SEC = 0.12
-SAVE_TO_FILE = False
-HEADLESS = False
+
 
 SIMULATION_CONTROL_SPECS = [
     {
@@ -1342,32 +1343,48 @@ def main() -> None:
 
         sim_time = 0.0
         sample_accum = 0.0
-        last_time = time.perf_counter()
+        target_dt = 1.0 / FPS
+        previous_step_start = time.perf_counter() - target_dt
+        current_fps = float(FPS)
 
         try:
             while True:
-                now = time.perf_counter()
-                dt = now - last_time
-                last_time = now
-                if dt <= 0.0:
-                    dt = 1.0 / FPS
+                step_start = time.perf_counter()
+                loop_dt = step_start - previous_step_start
+                previous_step_start = step_start
+                if loop_dt > 1e-9:
+                    current_fps = 1.0 / loop_dt
 
-                world.step(dt)
-                sim_time += dt
-                sample_accum += dt
+                world.step(target_dt)
+                sim_time += target_dt
+                sample_accum += target_dt
+
+                sheep_count = len(world.sheep_by_id)
+                wolf_count = len(world.wolf_by_id)
+                grass_count = len(world.grass_by_id)
 
                 while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
                     sample_accum -= GRAPH_SAMPLE_INTERVAL_SEC
                     recorder.add_sample(
                         sim_time,
-                        len(world.sheep_by_id),
-                        len(world.wolf_by_id),
-                        len(world.grass_by_id),
+                        sheep_count,
+                        wolf_count,
+                        grass_count,
                     )
 
-                time.sleep(0.001)
+                status = (
+                    f"\rFPS: {current_fps:6.1f} | "
+                    f"Sheep: {sheep_count:4d} | "
+                    f"Wolves: {wolf_count:4d} | "
+                    f"Grass: {grass_count:4d}"
+                )
+                print(status, end="", flush=True)
+
+                remaining = target_dt - (time.perf_counter() - step_start)
+                if remaining > 0.0:
+                    time.sleep(remaining)
         except KeyboardInterrupt:
-            pass
+            print()
 
         if SAVE_TO_FILE:
             recorder.save_all()
