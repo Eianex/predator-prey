@@ -100,34 +100,37 @@ ANIMATION = False
 SAVE_TO_FILE = False
 HEADLESS = False
 
-NUM_SHEEP = 70
-NUM_WOLVES = 50
-MAX_SHEEP = 10000
-MAX_WOLVES = 10000
-MAX_GRASS = 10000
-INITIAL_PLANTS = 400
+NUM_SHEEP = 100
+NUM_WOLVES = 40
+INITIAL_PLANTS = 250
 
-SHEEP_SCALE = 10
-WOLF_SCALE = 10
+MAX_SHEEP = 500
+MAX_WOLVES = 500
+MAX_GRASS = 500
+
+SHEEP_SCALE = 20
+WOLF_SCALE = 20
+PLANT_SCALE = 20
 
 SHEEP_SPEED = 40.0
 WOLF_SPEED = 45.0
 
-PLANT_SCALE = 20
 PLANT_GROWTH_SEC = 2.0
-PLANT_REPRODUCTION_PERIOD_SEC = 5.0
+PLANT_REPRODUCTION_PERIOD_SEC = 2.0
+
+SHEEP_NO_NEED_FOOD_SEC = 3
+SHEEP_TIMER_TO_FIND_FOOD_SEC = 6.0
+WOLF_NO_NEED_FOOD_SEC = 0.5
+WOLF_TIMER_TO_FIND_FOOD_SEC = 2.6
+WOLF_EAT_ALL = False
+
 PLANT_REPRODUCTION_RADIUS = PLANT_SCALE
 PLANT_NEARBY_RADIUS_MULT = 1.01
 PLANT_NEARBY_LIMIT = 4
-PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.01
+PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.1
 
 SHEEP_TYPE_OF_REPRODUCTION = "asexual"
 WOLF_TYPE_OF_REPRODUCTION = "asexual"
-WOLF_EAT_ALL = False
-SHEEP_NO_NEED_FOOD_SEC = 3
-SHEEP_TIMER_TO_FIND_FOOD_SEC = 10.0
-WOLF_NO_NEED_FOOD_SEC = 0.5
-WOLF_TIMER_TO_FIND_FOOD_SEC = 2.6
 SHEEP_ASEXUAL_REPRODUCTION_DELAY_SEC = 0.30
 SHEEP_ASEXUAL_REPRODUCTION_DELAY_JITTER_SEC = 0.15
 WOLF_ASEXUAL_REPRODUCTION_DELAY_SEC = 0.30
@@ -173,7 +176,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "MAX_SHEEP",
         "label": "Max sheep",
         "minimum": 0.0,
-        "maximum": 10000.0,
+        "maximum": 1000.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -182,7 +185,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "MAX_WOLVES",
         "label": "Max wolves",
         "minimum": 0.0,
-        "maximum": 10000.0,
+        "maximum": 1000.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -191,7 +194,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "MAX_GRASS",
         "label": "Max grass",
         "minimum": 0.0,
-        "maximum": 10000.0,
+        "maximum": 1000.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
