@@ -837,6 +837,31 @@ class World:
             self._grass_grown[i] = 1 if plant.is_fully_grown() else 0
             self._grass_idx_by_id[plant.id] = i
 
+    def _start_wall_escape_if_on_boundary(self, animal: Agent) -> None:
+        if not isinstance(animal.motor, TargetStraightMotor):
+            return
+
+        eps = 1e-4
+        pad = 0.5
+        escape = Vector2(0.0, 0.0)
+
+        if animal.pos.x <= animal.base_radius + eps:
+            animal.pos.x = animal.base_radius + pad
+            escape.x += 1.0
+        elif animal.pos.x >= WIDTH - animal.base_radius - eps:
+            animal.pos.x = WIDTH - animal.base_radius - pad
+            escape.x -= 1.0
+
+        if animal.pos.y <= animal.base_radius + eps:
+            animal.pos.y = animal.base_radius + pad
+            escape.y += 1.0
+        elif animal.pos.y >= HEIGHT - animal.base_radius - eps:
+            animal.pos.y = HEIGHT - animal.base_radius - pad
+            escape.y -= 1.0
+
+        if escape.length_squared() > 1e-12:
+            animal.motor.start_wall_escape(escape.normalize() * animal.speed, 0.12)
+
     @staticmethod
     def bounce_in_bounds(
         pos: Vector2, vel: Vector2, radius: float, width: int, height: int
@@ -922,6 +947,7 @@ class World:
             a.pos.y = float(y[i])
             a.vel.x = float(vx[i])
             a.vel.y = float(vy[i])
+            self._start_wall_escape_if_on_boundary(a)
 
         touched_idx = np.nonzero(touched)[0]
         for i in touched_idx:
@@ -1310,6 +1336,7 @@ class World:
         pos_changed = (wolf.pos - prev_pos).length_squared() > 1e-12
         vel_changed = (wolf.vel - prev_vel).length_squared() > 1e-12
         if pos_changed or vel_changed:
+            self._start_wall_escape_if_on_boundary(wolf)
             self._retarget_wolf_to_nearest_sheep(wolf)
             return True
         return False
@@ -1327,6 +1354,7 @@ class World:
         pos_changed = (sheep.pos - prev_pos).length_squared() > 1e-12
         vel_changed = (sheep.vel - prev_vel).length_squared() > 1e-12
         if pos_changed or vel_changed:
+            self._start_wall_escape_if_on_boundary(sheep)
             self._retarget_sheep_to_nearest_grass(sheep)
             return True
         return False

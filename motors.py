@@ -79,6 +79,8 @@ class TargetStraightMotor:
     def __init__(self):
         self.target_pos: Vector2 | None = None
         self.target_acquired = False
+        self.wall_escape_vel = Vector2(0.0, 0.0)
+        self.wall_escape_timer = 0.0
 
     def set_target(self, target_pos: Vector2) -> None:
         self.target_pos = Vector2(target_pos.x, target_pos.y)
@@ -87,6 +89,14 @@ class TargetStraightMotor:
     def clear_target(self) -> None:
         self.target_pos = None
         self.target_acquired = False
+
+    def start_wall_escape(
+        self, escape_vel: Vector2, duration_sec: float = 0.12
+    ) -> None:
+        if escape_vel.length_squared() < 1e-12:
+            return
+        self.wall_escape_vel = Vector2(escape_vel.x, escape_vel.y)
+        self.wall_escape_timer = max(self.wall_escape_timer, duration_sec)
 
     def advance(
         self,
@@ -97,6 +107,16 @@ class TargetStraightMotor:
         radius: float,
         displacement_scale: float,
     ) -> tuple[Vector2, Vector2]:
+        if self.wall_escape_timer > 0.0:
+            self.wall_escape_timer = max(0.0, self.wall_escape_timer - dt)
+            new_vel = (
+                self.wall_escape_vel
+                if self.wall_escape_vel.length_squared() > 1e-12
+                else vel
+            )
+            new_pos = pos + new_vel * dt * displacement_scale
+            return new_pos, new_vel
+
         if self.target_acquired and self.target_pos is not None:
             to_target = self.target_pos - pos
             dist_sq = to_target.length_squared()
