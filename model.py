@@ -1,3 +1,10 @@
+import numpy as np
+from numba_collision_kernel import solve_collisions_same_species
+from numba_search_kernel import (
+    collect_nearby_indices,
+    nearest_alive_index,
+    nearest_alive_grown_index,
+)
 import functools
 import math
 import random
@@ -91,36 +98,39 @@ ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 ANIMATION = False
 SAVE_TO_FILE = False
-HEADLESS = True
+HEADLESS = False
 
-NUM_SHEEP = 80
+NUM_SHEEP = 100
 NUM_WOLVES = 40
-MAX_SHEEP = 500
-MAX_WOLVES = 200
-MAX_GRASS = 300
-INITIAL_PLANTS = 200
+INITIAL_PLANTS = 250
 
-SHEEP_SCALE = 10
-WOLF_SCALE = 10
+MAX_SHEEP = 500
+MAX_WOLVES = 500
+MAX_GRASS = 500
+
+SHEEP_SCALE = 20
+WOLF_SCALE = 20
+PLANT_SCALE = 20
 
 SHEEP_SPEED = 40.0
 WOLF_SPEED = 45.0
 
-PLANT_SCALE = 20
 PLANT_GROWTH_SEC = 2.0
 PLANT_REPRODUCTION_PERIOD_SEC = 2.0
+
+SHEEP_NO_NEED_FOOD_SEC = 3
+SHEEP_TIMER_TO_FIND_FOOD_SEC = 6.0
+WOLF_NO_NEED_FOOD_SEC = 0.5
+WOLF_TIMER_TO_FIND_FOOD_SEC = 2.6
+WOLF_EAT_ALL = False
+
 PLANT_REPRODUCTION_RADIUS = PLANT_SCALE
 PLANT_NEARBY_RADIUS_MULT = 1.01
-PLANT_NEARBY_LIMIT = 4
-PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.01
+PLANT_NEARBY_LIMIT = 3
+PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.1
 
 SHEEP_TYPE_OF_REPRODUCTION = "asexual"
 WOLF_TYPE_OF_REPRODUCTION = "asexual"
-WOLF_EAT_ALL = False
-SHEEP_NO_NEED_FOOD_SEC = 3
-SHEEP_TIMER_TO_FIND_FOOD_SEC = 10.0
-WOLF_NO_NEED_FOOD_SEC = 0.5
-WOLF_TIMER_TO_FIND_FOOD_SEC = 2.6
 SHEEP_ASEXUAL_REPRODUCTION_DELAY_SEC = 0.30
 SHEEP_ASEXUAL_REPRODUCTION_DELAY_JITTER_SEC = 0.15
 WOLF_ASEXUAL_REPRODUCTION_DELAY_SEC = 0.30
@@ -139,7 +149,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "NUM_SHEEP",
         "label": "Initial sheep",
         "minimum": 0.0,
-        "maximum": 100.0,
+        "maximum": 1000.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -148,7 +158,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "NUM_WOLVES",
         "label": "Initial wolves",
         "minimum": 0.0,
-        "maximum": 100.0,
+        "maximum": 1000.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -157,7 +167,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "INITIAL_PLANTS",
         "label": "Initial grass",
         "minimum": 0.0,
-        "maximum": 500.0,
+        "maximum": 1000.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -166,7 +176,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "MAX_SHEEP",
         "label": "Max sheep",
         "minimum": 0.0,
-        "maximum": 500.0,
+        "maximum": 1000.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -175,7 +185,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "MAX_WOLVES",
         "label": "Max wolves",
         "minimum": 0.0,
-        "maximum": 300.0,
+        "maximum": 1000.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -238,7 +248,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "PLANT_REPRODUCTION_PERIOD_SEC",
         "label": "Grass reproduction period [s]",
         "minimum": 0.0,
-        "maximum": 12.0,
+        "maximum": 60.0,
         "step": 0.1,
         "integer": False,
         "decimals": 1,
@@ -384,16 +394,23 @@ class Sheep:
         position: Vector2,
         speed: float,
         scale: int,
-        no_need_food_sec: float = SHEEP_NO_NEED_FOOD_SEC,
-        timer_to_find_food_sec: float = SHEEP_TIMER_TO_FIND_FOOD_SEC,
+        no_need_food_sec: float | None = None,
+        timer_to_find_food_sec: float | None = None,
         initial_food_offset_sec: float | None = None,
     ):
         self.id = animal_id
         self.motor = motor
         self.speed = speed
         self.pos = position
+
+        if no_need_food_sec is None:
+            no_need_food_sec = SHEEP_NO_NEED_FOOD_SEC
+        if timer_to_find_food_sec is None:
+            timer_to_find_food_sec = SHEEP_TIMER_TO_FIND_FOOD_SEC
+
         self.no_need_food_sec = max(0.0, no_need_food_sec)
         self.timer_to_find_food_sec = max(0.0, timer_to_find_food_sec)
+
         self.no_need_food_timer = self.no_need_food_sec
         self.find_food_timer = self.timer_to_find_food_sec
         self.is_alive = True
@@ -524,16 +541,23 @@ class Wolf:
         position: Vector2,
         speed: float,
         scale: int,
-        no_need_food_sec: float = WOLF_NO_NEED_FOOD_SEC,
-        timer_to_find_food_sec: float = WOLF_TIMER_TO_FIND_FOOD_SEC,
+        no_need_food_sec: float | None = None,
+        timer_to_find_food_sec: float | None = None,
         initial_food_offset_sec: float | None = None,
     ):
         self.id = animal_id
         self.motor = motor
         self.speed = speed
         self.pos = position
+
+        if no_need_food_sec is None:
+            no_need_food_sec = WOLF_NO_NEED_FOOD_SEC
+        if timer_to_find_food_sec is None:
+            timer_to_find_food_sec = WOLF_TIMER_TO_FIND_FOOD_SEC
+
         self.no_need_food_sec = max(0.0, no_need_food_sec)
         self.timer_to_find_food_sec = max(0.0, timer_to_find_food_sec)
+
         self.no_need_food_timer = self.no_need_food_sec
         self.find_food_timer = self.timer_to_find_food_sec
         self.is_alive = True
@@ -688,7 +712,10 @@ class Plant:
         else:
             cluster_angle = math.atan2(sum_y, sum_x)
 
-        spawn_angle = (cluster_angle + math.pi) % math.tau
+        base_angle = (cluster_angle + math.pi) % math.tau
+        spawn_angle = (
+            base_angle + random.uniform(-math.pi / 2, math.pi / 2)
+        ) % math.tau
         offset = (
             Vector2(math.cos(spawn_angle), math.sin(spawn_angle))
             * PLANT_REPRODUCTION_RADIUS
@@ -723,15 +750,22 @@ class World:
         self.pending_grass_births: list[Plant] = []
         self.pending_dead_ids: set[int] = set()
         self.grass_target_locks: dict[int, int] = {}
-
-        self._spatial_cell_size = self._compute_spatial_cell_size()
-        self._sheep_cells: dict[tuple[int, int], list[Sheep]] = {}
-        self._wolf_cells: dict[tuple[int, int], list[Wolf]] = {}
-        self._grass_cells: dict[tuple[int, int], list[Plant]] = {}
-        self._agent_cells: dict[tuple[int, int], list[Agent]] = {}
-        self._pending_grass_cells: dict[tuple[int, int], list[Plant]] = {}
-        self._spatial_dirty = True
         self._profiler: FunctionProfiler | None = None
+
+        self._sheep_refs: list[Sheep] = []
+        self._sheep_ids = np.empty(0, dtype=np.int64)
+        self._sheep_x = np.empty(0, dtype=np.float32)
+        self._sheep_y = np.empty(0, dtype=np.float32)
+        self._sheep_alive = np.empty(0, dtype=np.uint8)
+        self._sheep_idx_by_id: dict[int, int] = {}
+
+        self._grass_refs: list[Plant] = []
+        self._grass_ids = np.empty(0, dtype=np.int64)
+        self._grass_x = np.empty(0, dtype=np.float32)
+        self._grass_y = np.empty(0, dtype=np.float32)
+        self._grass_alive = np.empty(0, dtype=np.uint8)
+        self._grass_grown = np.empty(0, dtype=np.uint8)
+        self._grass_idx_by_id: dict[int, int] = {}
 
         target_initial_sheep = min(NUM_SHEEP, MAX_SHEEP)
         for _ in range(target_initial_sheep):
@@ -747,9 +781,10 @@ class World:
                 ),
             )
             self.sheep_by_id[sid] = sheep
-            self._mark_spatial_dirty()
             self._bounce_sheep_in_bounds(sheep)
             self._retarget_sheep_to_nearest_grass(sheep)
+
+        self._rebuild_search_snapshots()
 
         target_initial_wolves = min(NUM_WOLVES, MAX_WOLVES)
         for _ in range(target_initial_wolves):
@@ -765,7 +800,6 @@ class World:
                 ),
             )
             self.wolf_by_id[wid] = wolf
-            self._mark_spatial_dirty()
             self._bounce_wolf_in_bounds(wolf)
             self._retarget_wolf_to_nearest_sheep(wolf)
 
@@ -784,8 +818,69 @@ class World:
             )
             if self.can_place_grass(plant):
                 self.grass_by_id[pid] = plant
-                self._mark_spatial_dirty()
                 planted += 1
+
+        self._rebuild_search_snapshots()
+
+    def _rebuild_search_snapshots(self) -> None:
+        sheep_refs = list(self.sheep_by_id.values())
+        n_sheep = len(sheep_refs)
+
+        self._sheep_refs = sheep_refs
+        self._sheep_ids = np.empty(n_sheep, dtype=np.int64)
+        self._sheep_x = np.empty(n_sheep, dtype=np.float32)
+        self._sheep_y = np.empty(n_sheep, dtype=np.float32)
+        self._sheep_alive = np.ones(n_sheep, dtype=np.uint8)
+        self._sheep_idx_by_id = {}
+
+        for i, sheep in enumerate(sheep_refs):
+            self._sheep_ids[i] = sheep.id
+            self._sheep_x[i] = sheep.pos.x
+            self._sheep_y[i] = sheep.pos.y
+            self._sheep_idx_by_id[sheep.id] = i
+
+        grass_refs = list(self.grass_by_id.values())
+        n_grass = len(grass_refs)
+
+        self._grass_refs = grass_refs
+        self._grass_ids = np.empty(n_grass, dtype=np.int64)
+        self._grass_x = np.empty(n_grass, dtype=np.float32)
+        self._grass_y = np.empty(n_grass, dtype=np.float32)
+        self._grass_alive = np.ones(n_grass, dtype=np.uint8)
+        self._grass_grown = np.empty(n_grass, dtype=np.uint8)
+        self._grass_idx_by_id = {}
+
+        for i, plant in enumerate(grass_refs):
+            self._grass_ids[i] = plant.id
+            self._grass_x[i] = plant.pos.x
+            self._grass_y[i] = plant.pos.y
+            self._grass_grown[i] = 1 if plant.is_fully_grown() else 0
+            self._grass_idx_by_id[plant.id] = i
+
+    def _start_wall_escape_if_on_boundary(self, animal: Agent) -> None:
+        if not isinstance(animal.motor, TargetStraightMotor):
+            return
+
+        eps = 1e-4
+        pad = 0.5
+        escape = Vector2(0.0, 0.0)
+
+        if animal.pos.x <= animal.base_radius + eps:
+            animal.pos.x = animal.base_radius + pad
+            escape.x += 1.0
+        elif animal.pos.x >= WIDTH - animal.base_radius - eps:
+            animal.pos.x = WIDTH - animal.base_radius - pad
+            escape.x -= 1.0
+
+        if animal.pos.y <= animal.base_radius + eps:
+            animal.pos.y = animal.base_radius + pad
+            escape.y += 1.0
+        elif animal.pos.y >= HEIGHT - animal.base_radius - eps:
+            animal.pos.y = HEIGHT - animal.base_radius - pad
+            escape.y -= 1.0
+
+        if escape.length_squared() > 1e-12:
+            animal.motor.start_wall_escape(escape.normalize() * animal.speed, 0.12)
 
     @staticmethod
     def bounce_in_bounds(
@@ -840,6 +935,43 @@ class World:
 
             if b.vel.length_squared() > 1e-6:
                 b.vel = b.vel.normalize() * b.speed
+
+    def _solve_species_collisions(self, animals, retarget_fn) -> None:
+        n = len(animals)
+        if n < 2:
+            return
+
+        x = np.empty(n, dtype=np.float32)
+        y = np.empty(n, dtype=np.float32)
+        vx = np.empty(n, dtype=np.float32)
+        vy = np.empty(n, dtype=np.float32)
+        radius = np.empty(n, dtype=np.float32)
+        speed = np.empty(n, dtype=np.float32)
+        alive = np.empty(n, dtype=np.uint8)
+
+        for i, a in enumerate(animals):
+            x[i] = a.pos.x
+            y[i] = a.pos.y
+            vx[i] = a.vel.x
+            vy[i] = a.vel.y
+            radius[i] = a.base_radius
+            speed[i] = a.speed
+            alive[i] = 0 if a.id in self.pending_dead_ids else 1
+
+        touched = solve_collisions_same_species(
+            x, y, vx, vy, radius, speed, alive, WIDTH, HEIGHT
+        )
+
+        for i, a in enumerate(animals):
+            a.pos.x = float(x[i])
+            a.pos.y = float(y[i])
+            a.vel.x = float(vx[i])
+            a.vel.y = float(vy[i])
+            self._start_wall_escape_if_on_boundary(a)
+
+        touched_idx = np.nonzero(touched)[0]
+        for i in touched_idx:
+            retarget_fn(animals[int(i)])
 
     def allocate_id(self) -> int:
         value = self._next_id
@@ -924,159 +1056,6 @@ class World:
             | set(self.grass_by_id.keys())
         )
 
-    def _compute_spatial_cell_size(self) -> float:
-        max_agent_radius = max(SHEEP_SCALE * 0.38, WOLF_SCALE * 0.38, 1.0)
-        grass_half_diag = (PLANT_SCALE * 0.5) * math.sqrt(2.0)
-        collision_span = max_agent_radius * 2.0
-        eat_span = max_agent_radius + grass_half_diag
-        placement_span = max(
-            float(PLANT_SCALE),
-            PLANT_SCALE * PLANT_NEARBY_RADIUS_MULT,
-            1.0,
-        )
-        return max(8.0, collision_span, eat_span, placement_span)
-
-    def _mark_spatial_dirty(self) -> None:
-        self._spatial_dirty = True
-
-    def _bucket_key(self, pos: Vector2) -> tuple[int, int]:
-        inv = 1.0 / self._spatial_cell_size
-        return int(math.floor(pos.x * inv)), int(math.floor(pos.y * inv))
-
-    @staticmethod
-    def _append_bucket(
-        bucket_map: dict[tuple[int, int], list], key: tuple[int, int], entity
-    ) -> None:
-        bucket = bucket_map.get(key)
-        if bucket is None:
-            bucket_map[key] = [entity]
-        else:
-            bucket.append(entity)
-
-    def _rebuild_spatial_index(self) -> None:
-        self._sheep_cells.clear()
-        self._wolf_cells.clear()
-        self._grass_cells.clear()
-        self._agent_cells.clear()
-        self._pending_grass_cells.clear()
-
-        for sheep in self.sheep_by_id.values():
-            if sheep.id in self.pending_dead_ids:
-                continue
-            key = self._bucket_key(sheep.pos)
-            self._append_bucket(self._sheep_cells, key, sheep)
-            self._append_bucket(self._agent_cells, key, sheep)
-
-        for wolf in self.wolf_by_id.values():
-            if wolf.id in self.pending_dead_ids:
-                continue
-            key = self._bucket_key(wolf.pos)
-            self._append_bucket(self._wolf_cells, key, wolf)
-            self._append_bucket(self._agent_cells, key, wolf)
-
-        for plant in self.grass_by_id.values():
-            if plant.id in self.pending_dead_ids:
-                continue
-            key = self._bucket_key(plant.pos)
-            self._append_bucket(self._grass_cells, key, plant)
-
-        for plant in self.pending_grass_births:
-            key = self._bucket_key(plant.pos)
-            self._append_bucket(self._pending_grass_cells, key, plant)
-
-        self._spatial_dirty = False
-
-    def _ensure_spatial_index(self) -> None:
-        if self._spatial_dirty:
-            self._rebuild_spatial_index()
-
-    def _bucket_range_for_radius(
-        self, pos: Vector2, radius: float
-    ) -> tuple[int, int, int, int]:
-        min_pos = pos - Vector2(radius, radius)
-        max_pos = pos + Vector2(radius, radius)
-        min_x, min_y = self._bucket_key(min_pos)
-        max_x, max_y = self._bucket_key(max_pos)
-        return min_x, max_x, min_y, max_y
-
-    @staticmethod
-    def _iter_ring_cells(center_x: int, center_y: int, ring: int):
-        if ring == 0:
-            yield center_x, center_y
-            return
-
-        x0 = center_x - ring
-        x1 = center_x + ring
-        y0 = center_y - ring
-        y1 = center_y + ring
-
-        for x in range(x0, x1 + 1):
-            yield x, y0
-        for y in range(y0 + 1, y1 + 1):
-            yield x1, y
-        for x in range(x1 - 1, x0 - 1, -1):
-            yield x, y1
-        for y in range(y1 - 1, y0, -1):
-            yield x0, y
-
-    def _min_distance_sq_to_unvisited_cells(
-        self, pos: Vector2, center_x: int, center_y: int, ring: int
-    ) -> float:
-        cell = self._spatial_cell_size
-        left = (center_x - ring) * cell
-        right = (center_x + ring + 1) * cell
-        top = (center_y - ring) * cell
-        bottom = (center_y + ring + 1) * cell
-        min_outside_dist = min(pos.x - left, right - pos.x, pos.y - top, bottom - pos.y)
-        if min_outside_dist <= 0.0:
-            return 0.0
-        return min_outside_dist * min_outside_dist
-
-    def _nearest_entity_from_buckets(
-        self,
-        bucket_map: dict[tuple[int, int], list],
-        pos: Vector2,
-        exclude: int | None = None,
-        predicate=None,
-    ):
-        self._ensure_spatial_index()
-        if predicate is None:
-            predicate = lambda _entity: True
-        if not bucket_map:
-            return None
-
-        center_x, center_y = self._bucket_key(pos)
-        max_ring = int(math.ceil(max(WIDTH, HEIGHT) / self._spatial_cell_size)) + 2
-        nearest = None
-        nearest_dist_sq = float("inf")
-
-        for ring in range(max_ring):
-            for cell_key in self._iter_ring_cells(center_x, center_y, ring):
-                for entity in bucket_map.get(
-                    cell_key, ()
-                ):  # bucket-local candidate scan
-                    if exclude is not None and entity.id == exclude:
-                        continue
-                    if entity.id in self.pending_dead_ids:
-                        continue
-                    if not predicate(entity):
-                        continue
-                    dist_sq = (entity.pos - pos).length_squared()
-                    if dist_sq < nearest_dist_sq:
-                        nearest_dist_sq = dist_sq
-                        nearest = entity
-
-            if (
-                nearest is not None
-                and nearest_dist_sq
-                <= self._min_distance_sq_to_unvisited_cells(
-                    pos, center_x, center_y, ring
-                )
-            ):
-                break
-
-        return nearest
-
     def can_spawn_sheep(self) -> bool:
         return len(self.sheep_by_id) + len(self.pending_sheep_births) < MAX_SHEEP
 
@@ -1098,29 +1077,21 @@ class World:
         if not self._is_inside_bounds(plant.pos, half_size):
             return False
 
-        self._ensure_spatial_index()
         same_spot_dist_sq = 1.0
-        radius = math.sqrt(same_spot_dist_sq)
-        min_x, max_x, min_y, max_y = self._bucket_range_for_radius(plant.pos, radius)
 
-        for bx in range(min_x, max_x + 1):
-            for by in range(min_y, max_y + 1):
-                for other in self._grass_cells.get(
-                    (bx, by), ()
-                ):  # existing grass candidates
-                    if exclude is not None and other.id == exclude:
-                        continue
-                    if other.id in self.pending_dead_ids:
-                        continue
-                    if (other.pos - plant.pos).length_squared() <= same_spot_dist_sq:
-                        return False
-                for pending in self._pending_grass_cells.get(
-                    (bx, by), ()
-                ):  # queued grass births
-                    if exclude is not None and pending.id == exclude:
-                        continue
-                    if (pending.pos - plant.pos).length_squared() <= same_spot_dist_sq:
-                        return False
+        for other in self.grass_by_id.values():
+            if exclude is not None and other.id == exclude:
+                continue
+            if other.id in self.pending_dead_ids:
+                continue
+            if (other.pos - plant.pos).length_squared() <= same_spot_dist_sq:
+                return False
+
+        for pending in self.pending_grass_births:
+            if exclude is not None and pending.id == exclude:
+                continue
+            if (pending.pos - plant.pos).length_squared() <= same_spot_dist_sq:
+                return False
 
         return True
 
@@ -1129,19 +1100,16 @@ class World:
             self._bounce_sheep_in_bounds(sheep)
             self._retarget_sheep_to_nearest_grass(sheep)
             self.pending_sheep_births.append(sheep)
-            self._mark_spatial_dirty()
 
     def spawn_wolf(self, wolf: Wolf) -> None:
         if self.can_spawn_wolf():
             self._bounce_wolf_in_bounds(wolf)
             self._retarget_wolf_to_nearest_sheep(wolf)
             self.pending_wolf_births.append(wolf)
-            self._mark_spatial_dirty()
 
     def spawn_grass(self, plant: Plant) -> None:
         if self.can_spawn_grass() and self.can_place_grass(plant):
             self.pending_grass_births.append(plant)
-            self._mark_spatial_dirty()
 
     def mark_dead(self, entity) -> None:
         if isinstance(entity, Plant):
@@ -1152,110 +1120,148 @@ class World:
                     sheep.target_grass_id = None
                     if isinstance(sheep.motor, TargetStraightMotor):
                         sheep.motor.clear_target()
+
+            idx = self._grass_idx_by_id.get(entity.id)
+            if idx is not None:
+                self._grass_alive[idx] = 0
+                self._grass_grown[idx] = 0
+
         elif isinstance(entity, Sheep):
             self.clear_sheep_grass_target(entity)
+            idx = self._sheep_idx_by_id.get(entity.id)
+            if idx is not None:
+                self._sheep_alive[idx] = 0
+
         self.pending_dead_ids.add(entity.id)
-        self._mark_spatial_dirty()
 
     def get_nearby_sheep(
         self, pos: Vector2, radius: float, exclude: int | None = None
     ) -> list[Sheep]:
-        self._ensure_spatial_index()
-        radius_sq = radius * radius
-        nearby: list[Sheep] = []
-        min_x, max_x, min_y, max_y = self._bucket_range_for_radius(pos, radius)
-        for bx in range(min_x, max_x + 1):
-            for by in range(min_y, max_y + 1):
-                for sheep in self._sheep_cells.get(
-                    (bx, by), ()
-                ):  # bucket-limited sheep scan
-                    if exclude is not None and sheep.id == exclude:
-                        continue
-                    if sheep.id in self.pending_dead_ids:
-                        continue
-                    if (sheep.pos - pos).length_squared() <= radius_sq:
-                        nearby.append(sheep)
-        return nearby
+        n = len(self._sheep_refs)
+        if n == 0:
+            return []
+
+        out_idx = np.empty(n, dtype=np.int32)
+        count = collect_nearby_indices(
+            self._sheep_x,
+            self._sheep_y,
+            self._sheep_ids,
+            self._sheep_alive,
+            float(pos.x),
+            float(pos.y),
+            float(radius * radius),
+            -1 if exclude is None else int(exclude),
+            out_idx,
+        )
+        return [self._sheep_refs[int(out_idx[i])] for i in range(count)]
 
     def get_nearby_wolves(
         self, pos: Vector2, radius: float, exclude: int | None = None
     ) -> list[Wolf]:
-        self._ensure_spatial_index()
         radius_sq = radius * radius
         nearby: list[Wolf] = []
-        min_x, max_x, min_y, max_y = self._bucket_range_for_radius(pos, radius)
-        for bx in range(min_x, max_x + 1):
-            for by in range(min_y, max_y + 1):
-                for wolf in self._wolf_cells.get(
-                    (bx, by), ()
-                ):  # bucket-limited wolf scan
-                    if exclude is not None and wolf.id == exclude:
-                        continue
-                    if wolf.id in self.pending_dead_ids:
-                        continue
-                    if (wolf.pos - pos).length_squared() <= radius_sq:
-                        nearby.append(wolf)
+        for wolf in self.wolf_by_id.values():
+            if exclude is not None and wolf.id == exclude:
+                continue
+            if wolf.id in self.pending_dead_ids:
+                continue
+            if (wolf.pos - pos).length_squared() <= radius_sq:
+                nearby.append(wolf)
         return nearby
 
     def get_nearby_grass(
         self, pos: Vector2, radius: float, exclude: int | None = None
     ) -> list[Plant]:
-        self._ensure_spatial_index()
-        radius_sq = radius * radius
-        nearby: list[Plant] = []
-        min_x, max_x, min_y, max_y = self._bucket_range_for_radius(pos, radius)
-        for bx in range(min_x, max_x + 1):
-            for by in range(min_y, max_y + 1):
-                for plant in self._grass_cells.get(
-                    (bx, by), ()
-                ):  # bucket-limited grass scan
-                    if exclude is not None and plant.id == exclude:
-                        continue
-                    if plant.id in self.pending_dead_ids:
-                        continue
-                    if (plant.pos - pos).length_squared() <= radius_sq:
-                        nearby.append(plant)
-        return nearby
+        n = len(self._grass_refs)
+        if n == 0:
+            return []
+
+        out_idx = np.empty(n, dtype=np.int32)
+        count = collect_nearby_indices(
+            self._grass_x,
+            self._grass_y,
+            self._grass_ids,
+            self._grass_alive,
+            float(pos.x),
+            float(pos.y),
+            float(radius * radius),
+            -1 if exclude is None else int(exclude),
+            out_idx,
+        )
+        return [self._grass_refs[int(out_idx[i])] for i in range(count)]
 
     def get_nearest_sheep(
         self, pos: Vector2, exclude: int | None = None
     ) -> Vector2 | None:
-        nearest = self._nearest_entity_from_buckets(
-            self._sheep_cells, pos, exclude=exclude
+        idx = nearest_alive_index(
+            self._sheep_x,
+            self._sheep_y,
+            self._sheep_ids,
+            self._sheep_alive,
+            float(pos.x),
+            float(pos.y),
+            -1 if exclude is None else int(exclude),
         )
-        if nearest is None:
+        if idx < 0:
             return None
-        return Vector2(nearest.pos.x, nearest.pos.y)
+
+        sheep = self._sheep_refs[int(idx)]
+        return Vector2(sheep.pos.x, sheep.pos.y)
 
     def get_nearest_wolf(
         self, pos: Vector2, exclude: int | None = None
     ) -> Vector2 | None:
-        nearest = self._nearest_entity_from_buckets(
-            self._wolf_cells, pos, exclude=exclude
-        )
-        if nearest is None:
+        nearest_pos: Vector2 | None = None
+        nearest_dist_sq = float("inf")
+        for wolf in self.wolf_by_id.values():
+            if exclude is not None and wolf.id == exclude:
+                continue
+            if wolf.id in self.pending_dead_ids:
+                continue
+            dist_sq = (wolf.pos - pos).length_squared()
+            if dist_sq < nearest_dist_sq:
+                nearest_dist_sq = dist_sq
+                nearest_pos = wolf.pos
+
+        if nearest_pos is None:
             return None
-        return Vector2(nearest.pos.x, nearest.pos.y)
+        return Vector2(nearest_pos.x, nearest_pos.y)
 
     def get_nearest_grass(
         self, pos: Vector2, exclude: int | None = None
     ) -> Vector2 | None:
-        nearest = self._nearest_entity_from_buckets(
-            self._grass_cells, pos, exclude=exclude
-        )
-        if nearest is None:
+        nearest_pos: Vector2 | None = None
+        nearest_dist_sq = float("inf")
+        for plant in self.grass_by_id.values():
+            if exclude is not None and plant.id == exclude:
+                continue
+            if plant.id in self.pending_dead_ids:
+                continue
+            dist_sq = (plant.pos - pos).length_squared()
+            if dist_sq < nearest_dist_sq:
+                nearest_dist_sq = dist_sq
+                nearest_pos = plant.pos
+
+        if nearest_pos is None:
             return None
-        return Vector2(nearest.pos.x, nearest.pos.y)
+        return Vector2(nearest_pos.x, nearest_pos.y)
 
     def get_nearest_grass_entity(
         self, pos: Vector2, exclude: int | None = None
     ) -> Plant | None:
-        return self._nearest_entity_from_buckets(
-            self._grass_cells,
-            pos,
-            exclude=exclude,
-            predicate=lambda plant: plant.is_fully_grown(),
+        idx = nearest_alive_grown_index(
+            self._grass_x,
+            self._grass_y,
+            self._grass_ids,
+            self._grass_alive,
+            self._grass_grown,
+            float(pos.x),
+            float(pos.y),
+            -1 if exclude is None else int(exclude),
         )
+        if idx < 0:
+            return None
+        return self._grass_refs[int(idx)]
 
     def clear_sheep_grass_target(self, sheep: Sheep) -> None:
         if sheep.target_grass_id is not None:
@@ -1349,9 +1355,8 @@ class World:
         )
         pos_changed = (wolf.pos - prev_pos).length_squared() > 1e-12
         vel_changed = (wolf.vel - prev_vel).length_squared() > 1e-12
-        if pos_changed:
-            self._mark_spatial_dirty()
         if pos_changed or vel_changed:
+            self._start_wall_escape_if_on_boundary(wolf)
             self._retarget_wolf_to_nearest_sheep(wolf)
             return True
         return False
@@ -1368,9 +1373,8 @@ class World:
         )
         pos_changed = (sheep.pos - prev_pos).length_squared() > 1e-12
         vel_changed = (sheep.vel - prev_vel).length_squared() > 1e-12
-        if pos_changed:
-            self._mark_spatial_dirty()
         if pos_changed or vel_changed:
+            self._start_wall_escape_if_on_boundary(sheep)
             self._retarget_sheep_to_nearest_grass(sheep)
             return True
         return False
@@ -1378,28 +1382,21 @@ class World:
     def count_nearby_grass(
         self, pos: Vector2, radius: float, exclude: int | None = None
     ) -> int:
-        self._ensure_spatial_index()
         radius_sq = radius * radius
         count = 0
-        min_x, max_x, min_y, max_y = self._bucket_range_for_radius(pos, radius)
-        for bx in range(min_x, max_x + 1):
-            for by in range(min_y, max_y + 1):
-                for plant in self._grass_cells.get(
-                    (bx, by), ()
-                ):  # live grass candidates
-                    if exclude is not None and plant.id == exclude:
-                        continue
-                    if plant.id in self.pending_dead_ids:
-                        continue
-                    if (plant.pos - pos).length_squared() <= radius_sq:
-                        count += 1
-                for plant in self._pending_grass_cells.get(
-                    (bx, by), ()
-                ):  # queued births
-                    if exclude is not None and plant.id == exclude:
-                        continue
-                    if (plant.pos - pos).length_squared() <= radius_sq:
-                        count += 1
+        for plant in self.grass_by_id.values():
+            if exclude is not None and plant.id == exclude:
+                continue
+            if plant.id in self.pending_dead_ids:
+                continue
+            if (plant.pos - pos).length_squared() <= radius_sq:
+                count += 1
+
+        for plant in self.pending_grass_births:
+            if exclude is not None and plant.id == exclude:
+                continue
+            if (plant.pos - pos).length_squared() <= radius_sq:
+                count += 1
 
         return count
 
@@ -1432,7 +1429,6 @@ class World:
         for agent in self.all_agents():
             scale = self._displacement_scale(agent)
             agent.move(dt, scale)
-            self._mark_spatial_dirty()
             if isinstance(agent, Wolf):
                 self._bounce_wolf_in_bounds(agent)
             else:
@@ -1440,66 +1436,11 @@ class World:
             self._advance_motion_frame(agent, dt)
 
     def _resolve_physics_collisions(self) -> None:
-        self._ensure_spatial_index()
-        neighbor_offsets = ((0, 0), (1, 0), (0, 1), (1, 1), (1, -1))
+        sheep = list(self.sheep_by_id.values())
+        wolves = list(self.wolf_by_id.values())
 
-        for cell_key in sorted(self._agent_cells.keys()):
-            cell_agents = self._agent_cells.get(cell_key, ())
-            for dx, dy in neighbor_offsets:
-                neighbor_key = (cell_key[0] + dx, cell_key[1] + dy)
-                neighbor_agents = self._agent_cells.get(neighbor_key)
-                if not neighbor_agents:
-                    continue
-
-                if neighbor_key == cell_key:
-                    pairs = (
-                        (cell_agents[i], cell_agents[j])
-                        for i in range(len(cell_agents))
-                        for j in range(i + 1, len(cell_agents))
-                    )
-                else:
-                    pairs = ((a, b) for a in cell_agents for b in neighbor_agents)
-
-                for a, b in pairs:
-                    if a.id in self.pending_dead_ids or b.id in self.pending_dead_ids:
-                        continue
-                    if (isinstance(a, Sheep) and isinstance(b, Wolf)) or (
-                        isinstance(a, Wolf) and isinstance(b, Sheep)
-                    ):
-                        continue
-
-                    delta = b.pos - a.pos
-                    min_dist = a.base_radius + b.base_radius
-                    dist_sq = delta.length_squared()
-                    if dist_sq >= min_dist * min_dist:
-                        continue
-
-                    if dist_sq < 1e-12:
-                        angle = random.uniform(0.0, math.tau)
-                        normal = Vector2(math.cos(angle), math.sin(angle))
-                        dist = 0.0
-                    else:
-                        dist = math.sqrt(dist_sq)
-                        normal = delta / dist
-
-                    self.elastic_collision_response(a, b, normal, dist, min_dist)
-                    self._mark_spatial_dirty()
-
-                    if isinstance(a, Wolf):
-                        self._bounce_wolf_in_bounds(a)
-                    elif isinstance(a, Sheep):
-                        self._bounce_sheep_in_bounds(a)
-                    if isinstance(b, Wolf):
-                        self._bounce_wolf_in_bounds(b)
-                    elif isinstance(b, Sheep):
-                        self._bounce_sheep_in_bounds(b)
-
-                    if isinstance(a, Wolf) and isinstance(b, Wolf):
-                        self._retarget_wolf_to_nearest_sheep(a)
-                        self._retarget_wolf_to_nearest_sheep(b)
-                    elif isinstance(a, Sheep) and isinstance(b, Sheep):
-                        self._retarget_sheep_to_nearest_grass(a)
-                        self._retarget_sheep_to_nearest_grass(b)
+        self._solve_species_collisions(sheep, self._retarget_sheep_to_nearest_grass)
+        self._solve_species_collisions(wolves, self._retarget_wolf_to_nearest_sheep)
 
     def _act_agents(self, dt: float) -> None:
         for wolf in list(self.wolf_by_id.values()):
@@ -1575,25 +1516,18 @@ class World:
                     self.grass_by_id[child.id] = child
             self.pending_grass_births.clear()
 
-        self._mark_spatial_dirty()
-
     def step(self, dt: float) -> None:
         self._move_agents(dt)
-        self._ensure_spatial_index()
         self._resolve_physics_collisions()
-        self._ensure_spatial_index()
+        self._rebuild_search_snapshots()
         self._update_pending_asexual_births(dt)
-        self._ensure_spatial_index()
         self._act_agents(dt)
-        self._ensure_spatial_index()
         self._update_grass(dt)
-        self._ensure_spatial_index()
         self._try_random_grass_spawn(dt)
         self.apply_pending_changes()
 
 
 PROFILED_WORLD_METHODS = (
-    "_rebuild_spatial_index",
     "can_place_grass",
     "get_nearby_sheep",
     "get_nearby_wolves",
