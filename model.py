@@ -19,8 +19,8 @@ from motors import (
     StraightLineMotor,
     TargetStraightMotor,
 )
-from paint import SimulationGUI
-from recorder import PopulationRecorder
+from ui import SimulationGUI
+from save_csv import PopulationRecorder
 
 
 class FunctionProfiler:
