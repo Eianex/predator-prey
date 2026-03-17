@@ -126,7 +126,7 @@ WOLF_EAT_ALL = False
 
 PLANT_REPRODUCTION_RADIUS = PLANT_SCALE
 PLANT_NEARBY_RADIUS_MULT = 1.01
-PLANT_NEARBY_LIMIT = 4
+PLANT_NEARBY_LIMIT = 3
 PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.1
 
 SHEEP_TYPE_OF_REPRODUCTION = "asexual"
@@ -698,7 +698,10 @@ class Plant:
         else:
             cluster_angle = math.atan2(sum_y, sum_x)
 
-        spawn_angle = (cluster_angle + math.pi) % math.tau
+        base_angle = (cluster_angle + math.pi) % math.tau
+        spawn_angle = (
+            base_angle + random.uniform(-math.pi / 2, math.pi / 2)
+        ) % math.tau
         offset = (
             Vector2(math.cos(spawn_angle), math.sin(spawn_angle))
             * PLANT_REPRODUCTION_RADIUS
