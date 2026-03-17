@@ -394,16 +394,23 @@ class Sheep:
         position: Vector2,
         speed: float,
         scale: int,
-        no_need_food_sec: float = SHEEP_NO_NEED_FOOD_SEC,
-        timer_to_find_food_sec: float = SHEEP_TIMER_TO_FIND_FOOD_SEC,
+        no_need_food_sec: float | None = None,
+        timer_to_find_food_sec: float | None = None,
         initial_food_offset_sec: float | None = None,
     ):
         self.id = animal_id
         self.motor = motor
         self.speed = speed
         self.pos = position
+
+        if no_need_food_sec is None:
+            no_need_food_sec = SHEEP_NO_NEED_FOOD_SEC
+        if timer_to_find_food_sec is None:
+            timer_to_find_food_sec = SHEEP_TIMER_TO_FIND_FOOD_SEC
+
         self.no_need_food_sec = max(0.0, no_need_food_sec)
         self.timer_to_find_food_sec = max(0.0, timer_to_find_food_sec)
+
         self.no_need_food_timer = self.no_need_food_sec
         self.find_food_timer = self.timer_to_find_food_sec
         self.is_alive = True
@@ -534,16 +541,23 @@ class Wolf:
         position: Vector2,
         speed: float,
         scale: int,
-        no_need_food_sec: float = WOLF_NO_NEED_FOOD_SEC,
-        timer_to_find_food_sec: float = WOLF_TIMER_TO_FIND_FOOD_SEC,
+        no_need_food_sec: float | None = None,
+        timer_to_find_food_sec: float | None = None,
         initial_food_offset_sec: float | None = None,
     ):
         self.id = animal_id
         self.motor = motor
         self.speed = speed
         self.pos = position
+
+        if no_need_food_sec is None:
+            no_need_food_sec = WOLF_NO_NEED_FOOD_SEC
+        if timer_to_find_food_sec is None:
+            timer_to_find_food_sec = WOLF_TIMER_TO_FIND_FOOD_SEC
+
         self.no_need_food_sec = max(0.0, no_need_food_sec)
         self.timer_to_find_food_sec = max(0.0, timer_to_find_food_sec)
+
         self.no_need_food_timer = self.no_need_food_sec
         self.find_food_timer = self.timer_to_find_food_sec
         self.is_alive = True
