@@ -123,6 +123,7 @@ SHEEP_TIMER_TO_FIND_FOOD_SEC = 6.0
 WOLF_NO_NEED_FOOD_SEC = 0.5
 WOLF_TIMER_TO_FIND_FOOD_SEC = 2.6
 WOLF_EAT_ALL = False
+SHEEP_EAT_ALL = False
 
 PLANT_REPRODUCTION_RADIUS = PLANT_SCALE
 PLANT_NEARBY_RADIUS_MULT = 1.01
@@ -291,8 +292,19 @@ SIMULATION_CONTROL_SPECS = [
     },
 ]
 
+SIMULATION_TOGGLE_SPECS = [
+    {
+        "key": "WOLF_EAT_ALL",
+        "label": "Wolf unlimited eating",
+    },
+    {
+        "key": "SHEEP_EAT_ALL",
+        "label": "Sheep unlimited eating",
+    },
+]
 
-def default_simulation_settings() -> dict[str, float]:
+
+def default_simulation_settings() -> dict[str, float | bool]:
     return {
         "NUM_SHEEP": float(NUM_SHEEP),
         "NUM_WOLVES": float(NUM_WOLVES),
@@ -311,10 +323,12 @@ def default_simulation_settings() -> dict[str, float]:
         "SHEEP_TIMER_TO_FIND_FOOD_SEC": float(SHEEP_TIMER_TO_FIND_FOOD_SEC),
         "WOLF_NO_NEED_FOOD_SEC": float(WOLF_NO_NEED_FOOD_SEC),
         "WOLF_TIMER_TO_FIND_FOOD_SEC": float(WOLF_TIMER_TO_FIND_FOOD_SEC),
+        "WOLF_EAT_ALL": WOLF_EAT_ALL,
+        "SHEEP_EAT_ALL": SHEEP_EAT_ALL,
     }
 
 
-def apply_simulation_settings(settings: dict[str, float]) -> None:
+def apply_simulation_settings(settings: dict[str, float | bool]) -> None:
     global NUM_SHEEP
     global NUM_WOLVES
     global INITIAL_PLANTS
@@ -334,6 +348,8 @@ def apply_simulation_settings(settings: dict[str, float]) -> None:
     global SHEEP_TIMER_TO_FIND_FOOD_SEC
     global WOLF_NO_NEED_FOOD_SEC
     global WOLF_TIMER_TO_FIND_FOOD_SEC
+    global WOLF_EAT_ALL
+    global SHEEP_EAT_ALL
 
     NUM_SHEEP = max(0, int(round(settings["NUM_SHEEP"])))
     NUM_WOLVES = max(0, int(round(settings["NUM_WOLVES"])))
@@ -360,6 +376,8 @@ def apply_simulation_settings(settings: dict[str, float]) -> None:
     WOLF_TIMER_TO_FIND_FOOD_SEC = max(
         0.0, float(settings["WOLF_TIMER_TO_FIND_FOOD_SEC"])
     )
+    WOLF_EAT_ALL = bool(settings.get("WOLF_EAT_ALL", WOLF_EAT_ALL))
+    SHEEP_EAT_ALL = bool(settings.get("SHEEP_EAT_ALL", SHEEP_EAT_ALL))
 
 
 # ------------------------------------------------------------
@@ -450,6 +468,8 @@ class Sheep:
         )
 
     def act(self, world: "World", dt: float) -> None:
+        if SHEEP_EAT_ALL and self.try_eat_grass(world):
+            return
         if not self._can_search_food(world, dt):
             world.clear_sheep_grass_target(self)
             return
@@ -494,9 +514,9 @@ class Sheep:
         if world.claim_grass_for_sheep(self, nearest_plant):
             self.motor.set_target(nearest_plant.pos)
 
-    def try_eat_grass(self, world: "World") -> None:
+    def try_eat_grass(self, world: "World") -> bool:
         if self.id in world.pending_dead_ids:
-            return
+            return False
         half_grass_size = PLANT_SCALE * 0.5
         search_radius = self.base_radius + (half_grass_size * math.sqrt(2.0))
         nearby = world.get_nearby_grass(self.pos, search_radius)
@@ -512,7 +532,8 @@ class Sheep:
             dy = self.pos.y - nearest_y
             if (dx * dx + dy * dy) <= (self.base_radius * self.base_radius):
                 self.eat(plant, world)
-                return
+                return True
+        return False
 
     def eat(self, target_plant: "Plant", world: "World") -> None:
         world.mark_dead(target_plant)
@@ -1633,6 +1654,7 @@ def main() -> None:
         on_save_wolf=lambda: runtime["recorder"].save_wolf(),
         on_save_grass=lambda: runtime["recorder"].save_grass(),
         control_specs=SIMULATION_CONTROL_SPECS,
+        toggle_specs=SIMULATION_TOGGLE_SPECS,
         control_values=default_simulation_settings(),
         plant_growth_sec=PLANT_GROWTH_SEC,
         animation_enabled=ANIMATION,

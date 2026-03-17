@@ -57,6 +57,55 @@ class ControlSpec:
     decimals: int = 2
 
 
+@dataclass
+class ToggleSpec:
+    key: str
+    label: str
+
+
+class ToggleControl:
+    def __init__(self, spec: ToggleSpec, value: bool, rect: pygame.Rect):
+        self.spec = spec
+        self.rect = rect
+        self.value = bool(value)
+        self.checkbox_rect = pygame.Rect(rect.right - 36, rect.y + 7, 20, 20)
+
+    def contains(self, pos: tuple[int, int]) -> bool:
+        return self.rect.collidepoint(pos)
+
+    def toggle(self) -> None:
+        self.value = not self.value
+
+    def draw(
+        self,
+        surface: pygame.Surface,
+        label_font: pygame.font.Font,
+    ) -> None:
+        pygame.draw.rect(surface, CONTROL_BG_COLOR, self.rect, border_radius=8)
+        pygame.draw.rect(
+            surface, PANEL_BORDER_COLOR, self.rect, width=1, border_radius=8
+        )
+
+        label = label_font.render(self.spec.label, True, (224, 234, 230))
+        label_rect = label.get_rect(midleft=(self.rect.x + 12, self.rect.centery))
+        surface.blit(label, label_rect)
+
+        checkbox_bg = CONTROL_FILL_COLOR if self.value else CONTROL_INPUT_BG
+        pygame.draw.rect(surface, checkbox_bg, self.checkbox_rect, border_radius=5)
+        pygame.draw.rect(
+            surface,
+            BUTTON_BORDER_COLOR,
+            self.checkbox_rect,
+            width=1,
+            border_radius=5,
+        )
+        if self.value:
+            start = (self.checkbox_rect.x + 4, self.checkbox_rect.centery)
+            mid = (self.checkbox_rect.x + 8, self.checkbox_rect.bottom - 5)
+            end = (self.checkbox_rect.right - 4, self.checkbox_rect.y + 5)
+            pygame.draw.lines(surface, (24, 35, 28), False, [start, mid, end], 3)
+
+
 class NumericControl:
     def __init__(self, spec: ControlSpec, value: float, rect: pygame.Rect):
         self.spec = spec
@@ -555,7 +604,8 @@ class SimulationGUI:
         on_save_wolf: Callable[[], None],
         on_save_grass: Callable[[], None],
         control_specs: list[dict],
-        control_values: dict[str, float],
+        toggle_specs: list[dict],
+        control_values: dict[str, float | bool],
         plant_growth_sec: float = DEFAULT_PLANT_GROWTH_SEC,
         animation_enabled: bool = False,
     ):
@@ -611,13 +661,19 @@ class SimulationGUI:
         )
 
         self.controls = self._build_controls(control_specs, control_values)
+        toggle_start_y = 108 + len(self.controls) * 37 + 10
+        self.toggle_controls = self._build_toggle_controls(
+            toggle_specs,
+            control_values,
+            toggle_start_y,
+        )
         self.sheep_graph: PopulationGraph | None = None
         self.wolf_graph: PopulationGraph | None = None
         self.grass_graph: PopulationGraph | None = None
         self._build_graphs(initial_sheep_count, initial_wolf_count, initial_grass_count)
 
     def _build_controls(
-        self, control_specs: list[dict], control_values: dict[str, float]
+        self, control_specs: list[dict], control_values: dict[str, float | bool]
     ) -> list[NumericControl]:
         controls: list[NumericControl] = []
         start_y = 108
@@ -626,8 +682,25 @@ class SimulationGUI:
         rect = pygame.Rect(12, start_y, CONTROL_PANEL_WIDTH - 24, row_height)
         for spec_data in control_specs:
             spec = ControlSpec(**spec_data)
-            value = control_values.get(spec.key, spec.minimum)
+            value = float(control_values.get(spec.key, spec.minimum))
             controls.append(NumericControl(spec, value, rect.copy()))
+            rect.y += row_height + gap
+        return controls
+
+    def _build_toggle_controls(
+        self,
+        toggle_specs: list[dict],
+        control_values: dict[str, float | bool],
+        start_y: int,
+    ) -> list[ToggleControl]:
+        controls: list[ToggleControl] = []
+        row_height = 34
+        gap = 6
+        rect = pygame.Rect(12, start_y, CONTROL_PANEL_WIDTH - 24, row_height)
+        for spec_data in toggle_specs:
+            spec = ToggleSpec(**spec_data)
+            value = bool(control_values.get(spec.key, False))
+            controls.append(ToggleControl(spec, value, rect.copy()))
             rect.y += row_height + gap
         return controls
 
@@ -716,9 +789,13 @@ class SimulationGUI:
         self._pending_clear_request = False
         return pending
 
-    def get_control_values(self) -> dict[str, float]:
+    def get_control_values(self) -> dict[str, float | bool]:
         self._deactivate_all_controls(True)
-        return {control.spec.key: control.value for control in self.controls}
+        values: dict[str, float | bool] = {
+            control.spec.key: control.value for control in self.controls
+        }
+        values.update({control.spec.key: control.value for control in self.toggle_controls})
+        return values
 
     def tick(self) -> float:
         return self.clock.tick(self.fps) / 1000.0
@@ -741,6 +818,11 @@ class SimulationGUI:
             if control.contains_slider(pos):
                 self._deactivate_all_controls(True, exclude=control)
                 control.begin_drag(pos)
+                return True
+        for control in self.toggle_controls:
+            if control.contains(pos):
+                self._deactivate_all_controls(True)
+                control.toggle()
                 return True
         self._deactivate_all_controls(True)
         return False
@@ -889,6 +971,8 @@ class SimulationGUI:
 
         for control in self.controls:
             control.draw(self.screen, self.tiny_font, self.small_font)
+        for control in self.toggle_controls:
+            control.draw(self.screen, self.small_font)
 
     def draw(self, world, sim_time: float, step_dt: float) -> None:
         self.screen.fill((0, 0, 0))
