@@ -1,32 +1,6 @@
-# /// script
-# dependencies = [
-#     "numpy",
-# ]
-# ///
-
-import numpy as np
 import asyncio
-import sys
-
-if sys.platform == "emscripten":
-    from wasm_kernels import (
-        solve_collisions_same_species,
-        collect_nearby_indices,
-        nearest_alive_index,
-        nearest_alive_grown_index,
-    )
-else:
-    from numba_collision_kernel import solve_collisions_same_species
-    from numba_search_kernel import (
-        collect_nearby_indices,
-        nearest_alive_index,
-        nearest_alive_grown_index,
-    )
-import functools
 import math
 import random
-import time
-from collections import deque
 
 from pygame.math import Vector2
 
@@ -40,115 +14,45 @@ from ui import SimulationGUI
 from save_csv import PopulationRecorder
 
 
-class FunctionProfiler:
-    def __init__(self, target_fps: float, window_size: int = 5):
-        self.target_fps = float(target_fps)
-        self.window_size = max(1, int(window_size))
-        self.current_frame_time_by_name: dict[str, float] = {}
-        self.recent_frames: deque[dict[str, float]] = deque(maxlen=self.window_size)
-
-    def record(self, name: str, elapsed_sec: float) -> None:
-        self.current_frame_time_by_name[name] = (
-            self.current_frame_time_by_name.get(name, 0.0) + elapsed_sec
-        )
-
-    def end_frame(self) -> None:
-        self.recent_frames.append(self.current_frame_time_by_name)
-        self.current_frame_time_by_name = {}
-
-    def format_hotspots(self, threshold_fps: float = 1.0) -> str:
-        frame_count = len(self.recent_frames)
-        if frame_count <= 0:
-            return ""
-
-        total_time_by_name: dict[str, float] = {}
-        for frame in self.recent_frames:
-            for name, elapsed_sec in frame.items():
-                total_time_by_name[name] = (
-                    total_time_by_name.get(name, 0.0) + elapsed_sec
-                )
-
-        fps_scale = self.target_fps * self.target_fps / frame_count
-        hotspots: list[tuple[str, float]] = []
-        other_fps = 0.0
-
-        for name, total_sec in total_time_by_name.items():
-            cost_fps = total_sec * fps_scale
-            if cost_fps >= threshold_fps:
-                hotspots.append((name, cost_fps))
-            else:
-                other_fps += cost_fps
-
-        hotspots.sort(key=lambda item: item[1], reverse=True)
-        parts = [f"{name}: {cost_fps:4.1f}fps" for name, cost_fps in hotspots]
-        if other_fps >= threshold_fps:
-            parts.append(f"other<1fps: {other_fps:4.1f}fps")
-        return " | ".join(parts)
-
-
-def profile_method(label: str):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(self, *args, **kwargs):
-            profiler = getattr(self, "_profiler", None)
-            if profiler is None:
-                return func(self, *args, **kwargs)
-            start = time.perf_counter()
-            try:
-                return func(self, *args, **kwargs)
-            finally:
-                profiler.record(label, time.perf_counter() - start)
-
-        return wrapper
-
-    return decorator
-
-
 # ------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------
-WIDTH, HEIGHT = 1000, 800
+WIDTH, HEIGHT = 800, 800
 FPS = 60
 
 ANIM_FRAME_COUNT = 120
 ANIM_CYCLE_SEC = 0.5
 ANIM_FPS = ANIM_FRAME_COUNT / ANIM_CYCLE_SEC
 ANIMATION = False
-SAVE_TO_FILE = False
-HEADLESS = False
 
-NUM_SHEEP = 100
-NUM_WOLVES = 40
-INITIAL_PLANTS = 250
-
-MAX_SHEEP = 500
-MAX_WOLVES = 500
+NUM_SHEEP = 70
+NUM_WOLVES = 16
+MAX_SHEEP = 300
+MAX_WOLVES = 100
 MAX_GRASS = 500
+INITIAL_PLANTS = 300
 
-SHEEP_SCALE = 20
-WOLF_SCALE = 20
-PLANT_SCALE = 20
+SHEEP_SCALE = 10
+WOLF_SCALE = 10
 
 SHEEP_SPEED = 40.0
 WOLF_SPEED = 45.0
 
+PLANT_SCALE = 20
 PLANT_GROWTH_SEC = 2.0
 PLANT_REPRODUCTION_PERIOD_SEC = 2.0
-
-SHEEP_NO_NEED_FOOD_SEC = 3
-SHEEP_TIMER_TO_FIND_FOOD_SEC = 6.0
-WOLF_NO_NEED_FOOD_SEC = 0.5
-WOLF_TIMER_TO_FIND_FOOD_SEC = 2.6
-WOLF_EAT_ALL = False
-SHEEP_EAT_ALL = False
-
 PLANT_REPRODUCTION_RADIUS = PLANT_SCALE
 PLANT_NEARBY_RADIUS_MULT = 1.01
-PLANT_NEARBY_LIMIT = 3
-PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.1
+PLANT_NEARBY_LIMIT = 4
+PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.01
 
 SHEEP_TYPE_OF_REPRODUCTION = "asexual"
 WOLF_TYPE_OF_REPRODUCTION = "asexual"
+WOLF_EAT_ALL = False
+SHEEP_NO_NEED_FOOD_SEC = 3
+SHEEP_TIMER_TO_FIND_FOOD_SEC = 10.0
+WOLF_NO_NEED_FOOD_SEC = 0.5
+WOLF_TIMER_TO_FIND_FOOD_SEC = 2.6
 SHEEP_ASEXUAL_REPRODUCTION_DELAY_SEC = 0.30
 SHEEP_ASEXUAL_REPRODUCTION_DELAY_JITTER_SEC = 0.15
 WOLF_ASEXUAL_REPRODUCTION_DELAY_SEC = 0.30
@@ -160,14 +64,14 @@ WOLF_STEP_SPEED_MULT_COMPRESS = 2 - WOLF_STEP_SPEED_MULT_EXPAND
 
 
 GRAPH_SAMPLE_INTERVAL_SEC = 0.12
-
+SAVE_TO_FILE = False
 
 SIMULATION_CONTROL_SPECS = [
     {
         "key": "NUM_SHEEP",
         "label": "Initial sheep",
         "minimum": 0.0,
-        "maximum": 1000.0,
+        "maximum": 100.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -176,7 +80,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "NUM_WOLVES",
         "label": "Initial wolves",
         "minimum": 0.0,
-        "maximum": 1000.0,
+        "maximum": 100.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -185,7 +89,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "INITIAL_PLANTS",
         "label": "Initial grass",
         "minimum": 0.0,
-        "maximum": 1000.0,
+        "maximum": 500.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -194,7 +98,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "MAX_SHEEP",
         "label": "Max sheep",
         "minimum": 0.0,
-        "maximum": 1000.0,
+        "maximum": 500.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -203,7 +107,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "MAX_WOLVES",
         "label": "Max wolves",
         "minimum": 0.0,
-        "maximum": 1000.0,
+        "maximum": 300.0,
         "step": 1.0,
         "integer": True,
         "decimals": 0,
@@ -266,7 +170,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "PLANT_REPRODUCTION_PERIOD_SEC",
         "label": "Grass reproduction period [s]",
         "minimum": 0.0,
-        "maximum": 60.0,
+        "maximum": 12.0,
         "step": 0.1,
         "integer": False,
         "decimals": 1,
@@ -309,19 +213,8 @@ SIMULATION_CONTROL_SPECS = [
     },
 ]
 
-SIMULATION_TOGGLE_SPECS = [
-    {
-        "key": "WOLF_EAT_ALL",
-        "label": "Wolf unlimited eating",
-    },
-    {
-        "key": "SHEEP_EAT_ALL",
-        "label": "Sheep unlimited eating",
-    },
-]
 
-
-def default_simulation_settings() -> dict[str, float | bool]:
+def default_simulation_settings() -> dict[str, float]:
     return {
         "NUM_SHEEP": float(NUM_SHEEP),
         "NUM_WOLVES": float(NUM_WOLVES),
@@ -340,12 +233,10 @@ def default_simulation_settings() -> dict[str, float | bool]:
         "SHEEP_TIMER_TO_FIND_FOOD_SEC": float(SHEEP_TIMER_TO_FIND_FOOD_SEC),
         "WOLF_NO_NEED_FOOD_SEC": float(WOLF_NO_NEED_FOOD_SEC),
         "WOLF_TIMER_TO_FIND_FOOD_SEC": float(WOLF_TIMER_TO_FIND_FOOD_SEC),
-        "WOLF_EAT_ALL": WOLF_EAT_ALL,
-        "SHEEP_EAT_ALL": SHEEP_EAT_ALL,
     }
 
 
-def apply_simulation_settings(settings: dict[str, float | bool]) -> None:
+def apply_simulation_settings(settings: dict[str, float]) -> None:
     global NUM_SHEEP
     global NUM_WOLVES
     global INITIAL_PLANTS
@@ -365,8 +256,6 @@ def apply_simulation_settings(settings: dict[str, float | bool]) -> None:
     global SHEEP_TIMER_TO_FIND_FOOD_SEC
     global WOLF_NO_NEED_FOOD_SEC
     global WOLF_TIMER_TO_FIND_FOOD_SEC
-    global WOLF_EAT_ALL
-    global SHEEP_EAT_ALL
 
     NUM_SHEEP = max(0, int(round(settings["NUM_SHEEP"])))
     NUM_WOLVES = max(0, int(round(settings["NUM_WOLVES"])))
@@ -393,8 +282,6 @@ def apply_simulation_settings(settings: dict[str, float | bool]) -> None:
     WOLF_TIMER_TO_FIND_FOOD_SEC = max(
         0.0, float(settings["WOLF_TIMER_TO_FIND_FOOD_SEC"])
     )
-    WOLF_EAT_ALL = bool(settings.get("WOLF_EAT_ALL", WOLF_EAT_ALL))
-    SHEEP_EAT_ALL = bool(settings.get("SHEEP_EAT_ALL", SHEEP_EAT_ALL))
 
 
 # ------------------------------------------------------------
@@ -429,23 +316,16 @@ class Sheep:
         position: Vector2,
         speed: float,
         scale: int,
-        no_need_food_sec: float | None = None,
-        timer_to_find_food_sec: float | None = None,
+        no_need_food_sec: float = SHEEP_NO_NEED_FOOD_SEC,
+        timer_to_find_food_sec: float = SHEEP_TIMER_TO_FIND_FOOD_SEC,
         initial_food_offset_sec: float | None = None,
     ):
         self.id = animal_id
         self.motor = motor
         self.speed = speed
         self.pos = position
-
-        if no_need_food_sec is None:
-            no_need_food_sec = SHEEP_NO_NEED_FOOD_SEC
-        if timer_to_find_food_sec is None:
-            timer_to_find_food_sec = SHEEP_TIMER_TO_FIND_FOOD_SEC
-
         self.no_need_food_sec = max(0.0, no_need_food_sec)
         self.timer_to_find_food_sec = max(0.0, timer_to_find_food_sec)
-
         self.no_need_food_timer = self.no_need_food_sec
         self.find_food_timer = self.timer_to_find_food_sec
         self.is_alive = True
@@ -485,8 +365,6 @@ class Sheep:
         )
 
     def act(self, world: "World", dt: float) -> None:
-        if SHEEP_EAT_ALL and self.try_eat_grass(world):
-            return
         if not self._can_search_food(world, dt):
             world.clear_sheep_grass_target(self)
             return
@@ -531,9 +409,9 @@ class Sheep:
         if world.claim_grass_for_sheep(self, nearest_plant):
             self.motor.set_target(nearest_plant.pos)
 
-    def try_eat_grass(self, world: "World") -> bool:
+    def try_eat_grass(self, world: "World") -> None:
         if self.id in world.pending_dead_ids:
-            return False
+            return
         half_grass_size = PLANT_SCALE * 0.5
         search_radius = self.base_radius + (half_grass_size * math.sqrt(2.0))
         nearby = world.get_nearby_grass(self.pos, search_radius)
@@ -549,8 +427,7 @@ class Sheep:
             dy = self.pos.y - nearest_y
             if (dx * dx + dy * dy) <= (self.base_radius * self.base_radius):
                 self.eat(plant, world)
-                return True
-        return False
+                return
 
     def eat(self, target_plant: "Plant", world: "World") -> None:
         world.mark_dead(target_plant)
@@ -579,23 +456,16 @@ class Wolf:
         position: Vector2,
         speed: float,
         scale: int,
-        no_need_food_sec: float | None = None,
-        timer_to_find_food_sec: float | None = None,
+        no_need_food_sec: float = WOLF_NO_NEED_FOOD_SEC,
+        timer_to_find_food_sec: float = WOLF_TIMER_TO_FIND_FOOD_SEC,
         initial_food_offset_sec: float | None = None,
     ):
         self.id = animal_id
         self.motor = motor
         self.speed = speed
         self.pos = position
-
-        if no_need_food_sec is None:
-            no_need_food_sec = WOLF_NO_NEED_FOOD_SEC
-        if timer_to_find_food_sec is None:
-            timer_to_find_food_sec = WOLF_TIMER_TO_FIND_FOOD_SEC
-
         self.no_need_food_sec = max(0.0, no_need_food_sec)
         self.timer_to_find_food_sec = max(0.0, timer_to_find_food_sec)
-
         self.no_need_food_timer = self.no_need_food_sec
         self.find_food_timer = self.timer_to_find_food_sec
         self.is_alive = True
@@ -750,10 +620,7 @@ class Plant:
         else:
             cluster_angle = math.atan2(sum_y, sum_x)
 
-        base_angle = (cluster_angle + math.pi) % math.tau
-        spawn_angle = (
-            base_angle + random.uniform(-math.pi / 2, math.pi / 2)
-        ) % math.tau
+        spawn_angle = (cluster_angle + math.pi) % math.tau
         offset = (
             Vector2(math.cos(spawn_angle), math.sin(spawn_angle))
             * PLANT_REPRODUCTION_RADIUS
@@ -788,22 +655,6 @@ class World:
         self.pending_grass_births: list[Plant] = []
         self.pending_dead_ids: set[int] = set()
         self.grass_target_locks: dict[int, int] = {}
-        self._profiler: FunctionProfiler | None = None
-
-        self._sheep_refs: list[Sheep] = []
-        self._sheep_ids = np.empty(0, dtype=np.int64)
-        self._sheep_x = np.empty(0, dtype=np.float32)
-        self._sheep_y = np.empty(0, dtype=np.float32)
-        self._sheep_alive = np.empty(0, dtype=np.uint8)
-        self._sheep_idx_by_id: dict[int, int] = {}
-
-        self._grass_refs: list[Plant] = []
-        self._grass_ids = np.empty(0, dtype=np.int64)
-        self._grass_x = np.empty(0, dtype=np.float32)
-        self._grass_y = np.empty(0, dtype=np.float32)
-        self._grass_alive = np.empty(0, dtype=np.uint8)
-        self._grass_grown = np.empty(0, dtype=np.uint8)
-        self._grass_idx_by_id: dict[int, int] = {}
 
         target_initial_sheep = min(NUM_SHEEP, MAX_SHEEP)
         for _ in range(target_initial_sheep):
@@ -821,8 +672,6 @@ class World:
             self.sheep_by_id[sid] = sheep
             self._bounce_sheep_in_bounds(sheep)
             self._retarget_sheep_to_nearest_grass(sheep)
-
-        self._rebuild_search_snapshots()
 
         target_initial_wolves = min(NUM_WOLVES, MAX_WOLVES)
         for _ in range(target_initial_wolves):
@@ -857,68 +706,6 @@ class World:
             if self.can_place_grass(plant):
                 self.grass_by_id[pid] = plant
                 planted += 1
-
-        self._rebuild_search_snapshots()
-
-    def _rebuild_search_snapshots(self) -> None:
-        sheep_refs = list(self.sheep_by_id.values())
-        n_sheep = len(sheep_refs)
-
-        self._sheep_refs = sheep_refs
-        self._sheep_ids = np.empty(n_sheep, dtype=np.int64)
-        self._sheep_x = np.empty(n_sheep, dtype=np.float32)
-        self._sheep_y = np.empty(n_sheep, dtype=np.float32)
-        self._sheep_alive = np.ones(n_sheep, dtype=np.uint8)
-        self._sheep_idx_by_id = {}
-
-        for i, sheep in enumerate(sheep_refs):
-            self._sheep_ids[i] = sheep.id
-            self._sheep_x[i] = sheep.pos.x
-            self._sheep_y[i] = sheep.pos.y
-            self._sheep_idx_by_id[sheep.id] = i
-
-        grass_refs = list(self.grass_by_id.values())
-        n_grass = len(grass_refs)
-
-        self._grass_refs = grass_refs
-        self._grass_ids = np.empty(n_grass, dtype=np.int64)
-        self._grass_x = np.empty(n_grass, dtype=np.float32)
-        self._grass_y = np.empty(n_grass, dtype=np.float32)
-        self._grass_alive = np.ones(n_grass, dtype=np.uint8)
-        self._grass_grown = np.empty(n_grass, dtype=np.uint8)
-        self._grass_idx_by_id = {}
-
-        for i, plant in enumerate(grass_refs):
-            self._grass_ids[i] = plant.id
-            self._grass_x[i] = plant.pos.x
-            self._grass_y[i] = plant.pos.y
-            self._grass_grown[i] = 1 if plant.is_fully_grown() else 0
-            self._grass_idx_by_id[plant.id] = i
-
-    def _start_wall_escape_if_on_boundary(self, animal: Agent) -> None:
-        if not isinstance(animal.motor, TargetStraightMotor):
-            return
-
-        eps = 1e-4
-        pad = 0.5
-        escape = Vector2(0.0, 0.0)
-
-        if animal.pos.x <= animal.base_radius + eps:
-            animal.pos.x = animal.base_radius + pad
-            escape.x += 1.0
-        elif animal.pos.x >= WIDTH - animal.base_radius - eps:
-            animal.pos.x = WIDTH - animal.base_radius - pad
-            escape.x -= 1.0
-
-        if animal.pos.y <= animal.base_radius + eps:
-            animal.pos.y = animal.base_radius + pad
-            escape.y += 1.0
-        elif animal.pos.y >= HEIGHT - animal.base_radius - eps:
-            animal.pos.y = HEIGHT - animal.base_radius - pad
-            escape.y -= 1.0
-
-        if escape.length_squared() > 1e-12:
-            animal.motor.start_wall_escape(escape.normalize() * animal.speed, 0.12)
 
     @staticmethod
     def bounce_in_bounds(
@@ -973,43 +760,6 @@ class World:
 
             if b.vel.length_squared() > 1e-6:
                 b.vel = b.vel.normalize() * b.speed
-
-    def _solve_species_collisions(self, animals, retarget_fn) -> None:
-        n = len(animals)
-        if n < 2:
-            return
-
-        x = np.empty(n, dtype=np.float32)
-        y = np.empty(n, dtype=np.float32)
-        vx = np.empty(n, dtype=np.float32)
-        vy = np.empty(n, dtype=np.float32)
-        radius = np.empty(n, dtype=np.float32)
-        speed = np.empty(n, dtype=np.float32)
-        alive = np.empty(n, dtype=np.uint8)
-
-        for i, a in enumerate(animals):
-            x[i] = a.pos.x
-            y[i] = a.pos.y
-            vx[i] = a.vel.x
-            vy[i] = a.vel.y
-            radius[i] = a.base_radius
-            speed[i] = a.speed
-            alive[i] = 0 if a.id in self.pending_dead_ids else 1
-
-        touched = solve_collisions_same_species(
-            x, y, vx, vy, radius, speed, alive, WIDTH, HEIGHT
-        )
-
-        for i, a in enumerate(animals):
-            a.pos.x = float(x[i])
-            a.pos.y = float(y[i])
-            a.vel.x = float(vx[i])
-            a.vel.y = float(vy[i])
-            self._start_wall_escape_if_on_boundary(a)
-
-        touched_idx = np.nonzero(touched)[0]
-        for i in touched_idx:
-            retarget_fn(animals[int(i)])
 
     def allocate_id(self) -> int:
         value = self._next_id
@@ -1158,40 +908,23 @@ class World:
                     sheep.target_grass_id = None
                     if isinstance(sheep.motor, TargetStraightMotor):
                         sheep.motor.clear_target()
-
-            idx = self._grass_idx_by_id.get(entity.id)
-            if idx is not None:
-                self._grass_alive[idx] = 0
-                self._grass_grown[idx] = 0
-
         elif isinstance(entity, Sheep):
             self.clear_sheep_grass_target(entity)
-            idx = self._sheep_idx_by_id.get(entity.id)
-            if idx is not None:
-                self._sheep_alive[idx] = 0
-
         self.pending_dead_ids.add(entity.id)
 
     def get_nearby_sheep(
         self, pos: Vector2, radius: float, exclude: int | None = None
     ) -> list[Sheep]:
-        n = len(self._sheep_refs)
-        if n == 0:
-            return []
-
-        out_idx = np.empty(n, dtype=np.int32)
-        count = collect_nearby_indices(
-            self._sheep_x,
-            self._sheep_y,
-            self._sheep_ids,
-            self._sheep_alive,
-            float(pos.x),
-            float(pos.y),
-            float(radius * radius),
-            -1 if exclude is None else int(exclude),
-            out_idx,
-        )
-        return [self._sheep_refs[int(out_idx[i])] for i in range(count)]
+        radius_sq = radius * radius
+        nearby: list[Sheep] = []
+        for sheep in self.sheep_by_id.values():
+            if exclude is not None and sheep.id == exclude:
+                continue
+            if sheep.id in self.pending_dead_ids:
+                continue
+            if (sheep.pos - pos).length_squared() <= radius_sq:
+                nearby.append(sheep)
+        return nearby
 
     def get_nearby_wolves(
         self, pos: Vector2, radius: float, exclude: int | None = None
@@ -1210,41 +943,35 @@ class World:
     def get_nearby_grass(
         self, pos: Vector2, radius: float, exclude: int | None = None
     ) -> list[Plant]:
-        n = len(self._grass_refs)
-        if n == 0:
-            return []
-
-        out_idx = np.empty(n, dtype=np.int32)
-        count = collect_nearby_indices(
-            self._grass_x,
-            self._grass_y,
-            self._grass_ids,
-            self._grass_alive,
-            float(pos.x),
-            float(pos.y),
-            float(radius * radius),
-            -1 if exclude is None else int(exclude),
-            out_idx,
-        )
-        return [self._grass_refs[int(out_idx[i])] for i in range(count)]
+        radius_sq = radius * radius
+        nearby: list[Plant] = []
+        for plant in self.grass_by_id.values():
+            if exclude is not None and plant.id == exclude:
+                continue
+            if plant.id in self.pending_dead_ids:
+                continue
+            if (plant.pos - pos).length_squared() <= radius_sq:
+                nearby.append(plant)
+        return nearby
 
     def get_nearest_sheep(
         self, pos: Vector2, exclude: int | None = None
     ) -> Vector2 | None:
-        idx = nearest_alive_index(
-            self._sheep_x,
-            self._sheep_y,
-            self._sheep_ids,
-            self._sheep_alive,
-            float(pos.x),
-            float(pos.y),
-            -1 if exclude is None else int(exclude),
-        )
-        if idx < 0:
-            return None
+        nearest_pos: Vector2 | None = None
+        nearest_dist_sq = float("inf")
+        for sheep in self.sheep_by_id.values():
+            if exclude is not None and sheep.id == exclude:
+                continue
+            if sheep.id in self.pending_dead_ids:
+                continue
+            dist_sq = (sheep.pos - pos).length_squared()
+            if dist_sq < nearest_dist_sq:
+                nearest_dist_sq = dist_sq
+                nearest_pos = sheep.pos
 
-        sheep = self._sheep_refs[int(idx)]
-        return Vector2(sheep.pos.x, sheep.pos.y)
+        if nearest_pos is None:
+            return None
+        return Vector2(nearest_pos.x, nearest_pos.y)
 
     def get_nearest_wolf(
         self, pos: Vector2, exclude: int | None = None
@@ -1287,19 +1014,20 @@ class World:
     def get_nearest_grass_entity(
         self, pos: Vector2, exclude: int | None = None
     ) -> Plant | None:
-        idx = nearest_alive_grown_index(
-            self._grass_x,
-            self._grass_y,
-            self._grass_ids,
-            self._grass_alive,
-            self._grass_grown,
-            float(pos.x),
-            float(pos.y),
-            -1 if exclude is None else int(exclude),
-        )
-        if idx < 0:
-            return None
-        return self._grass_refs[int(idx)]
+        nearest: Plant | None = None
+        nearest_dist_sq = float("inf")
+        for plant in self.grass_by_id.values():
+            if exclude is not None and plant.id == exclude:
+                continue
+            if plant.id in self.pending_dead_ids:
+                continue
+            if not plant.is_fully_grown():
+                continue
+            dist_sq = (plant.pos - pos).length_squared()
+            if dist_sq < nearest_dist_sq:
+                nearest_dist_sq = dist_sq
+                nearest = plant
+        return nearest
 
     def clear_sheep_grass_target(self, sheep: Sheep) -> None:
         if sheep.target_grass_id is not None:
@@ -1394,7 +1122,6 @@ class World:
         pos_changed = (wolf.pos - prev_pos).length_squared() > 1e-12
         vel_changed = (wolf.vel - prev_vel).length_squared() > 1e-12
         if pos_changed or vel_changed:
-            self._start_wall_escape_if_on_boundary(wolf)
             self._retarget_wolf_to_nearest_sheep(wolf)
             return True
         return False
@@ -1412,7 +1139,6 @@ class World:
         pos_changed = (sheep.pos - prev_pos).length_squared() > 1e-12
         vel_changed = (sheep.vel - prev_vel).length_squared() > 1e-12
         if pos_changed or vel_changed:
-            self._start_wall_escape_if_on_boundary(sheep)
             self._retarget_sheep_to_nearest_grass(sheep)
             return True
         return False
@@ -1474,11 +1200,52 @@ class World:
             self._advance_motion_frame(agent, dt)
 
     def _resolve_physics_collisions(self) -> None:
-        sheep = list(self.sheep_by_id.values())
-        wolves = list(self.wolf_by_id.values())
+        agents = self.all_agents()
+        for i in range(len(agents)):
+            a = agents[i]
+            if a.id in self.pending_dead_ids:
+                continue
+            for j in range(i + 1, len(agents)):
+                b = agents[j]
+                if b.id in self.pending_dead_ids:
+                    continue
 
-        self._solve_species_collisions(sheep, self._retarget_sheep_to_nearest_grass)
-        self._solve_species_collisions(wolves, self._retarget_wolf_to_nearest_sheep)
+                if (isinstance(a, Sheep) and isinstance(b, Wolf)) or (
+                    isinstance(a, Wolf) and isinstance(b, Sheep)
+                ):
+                    continue
+
+                delta = b.pos - a.pos
+                min_dist = a.base_radius + b.base_radius
+                dist_sq = delta.length_squared()
+                if dist_sq >= min_dist * min_dist:
+                    continue
+
+                if dist_sq < 1e-12:
+                    angle = random.uniform(0.0, math.tau)
+                    normal = Vector2(math.cos(angle), math.sin(angle))
+                    dist = 0.0
+                else:
+                    dist = math.sqrt(dist_sq)
+                    normal = delta / dist
+
+                self.elastic_collision_response(a, b, normal, dist, min_dist)
+
+                if isinstance(a, Wolf):
+                    self._bounce_wolf_in_bounds(a)
+                elif isinstance(a, Sheep):
+                    self._bounce_sheep_in_bounds(a)
+                if isinstance(b, Wolf):
+                    self._bounce_wolf_in_bounds(b)
+                elif isinstance(b, Sheep):
+                    self._bounce_sheep_in_bounds(b)
+
+                if isinstance(a, Wolf) and isinstance(b, Wolf):
+                    self._retarget_wolf_to_nearest_sheep(a)
+                    self._retarget_wolf_to_nearest_sheep(b)
+                elif isinstance(a, Sheep) and isinstance(b, Sheep):
+                    self._retarget_sheep_to_nearest_grass(a)
+                    self._retarget_sheep_to_nearest_grass(b)
 
     def _act_agents(self, dt: float) -> None:
         for wolf in list(self.wolf_by_id.values()):
@@ -1557,7 +1324,6 @@ class World:
     def step(self, dt: float) -> None:
         self._move_agents(dt)
         self._resolve_physics_collisions()
-        self._rebuild_search_snapshots()
         self._update_pending_asexual_births(dt)
         self._act_agents(dt)
         self._update_grass(dt)
@@ -1565,97 +1331,7 @@ class World:
         self.apply_pending_changes()
 
 
-PROFILED_WORLD_METHODS = (
-    "can_place_grass",
-    "get_nearby_sheep",
-    "get_nearby_wolves",
-    "get_nearby_grass",
-    "get_nearest_sheep",
-    "get_nearest_wolf",
-    "get_nearest_grass",
-    "get_nearest_grass_entity",
-    "count_nearby_grass",
-    "_move_agents",
-    "_resolve_physics_collisions",
-    "_update_pending_asexual_births",
-)
-
-for _profiled_method_name in PROFILED_WORLD_METHODS:
-    setattr(
-        World,
-        _profiled_method_name,
-        profile_method(_profiled_method_name)(getattr(World, _profiled_method_name)),
-    )
-
-
 async def main() -> None:
-    if HEADLESS:
-        world = World()
-        profiler = FunctionProfiler(FPS)
-        world._profiler = profiler
-        recorder = PopulationRecorder(
-            0.0, len(world.sheep_by_id), len(world.wolf_by_id), len(world.grass_by_id)
-        )
-        print("Headless mode running. Press Ctrl+C in this console to stop.")
-
-        sim_time = 0.0
-        sample_accum = 0.0
-        target_dt = 1.0 / FPS
-        previous_step_start = time.perf_counter() - target_dt
-        current_fps = float(FPS)
-        last_status_len = 0
-
-        try:
-            while True:
-                step_start = time.perf_counter()
-                loop_dt = step_start - previous_step_start
-                previous_step_start = step_start
-                if loop_dt > 1e-9:
-                    current_fps = 1.0 / loop_dt
-
-                world.step(target_dt)
-                profiler.end_frame()
-                sim_time += target_dt
-                sample_accum += target_dt
-
-                sheep_count = len(world.sheep_by_id)
-                wolf_count = len(world.wolf_by_id)
-                grass_count = len(world.grass_by_id)
-
-                while sample_accum >= GRAPH_SAMPLE_INTERVAL_SEC:
-                    sample_accum -= GRAPH_SAMPLE_INTERVAL_SEC
-                    recorder.add_sample(
-                        sim_time,
-                        sheep_count,
-                        wolf_count,
-                        grass_count,
-                    )
-
-                status = (
-                    f"FPS: {current_fps:6.1f} | "
-                    f"Sheep: {sheep_count:4d} | "
-                    f"Wolves: {wolf_count:4d} | "
-                    f"Grass: {grass_count:4d}"
-                )
-                hotspots = ""
-                if current_fps < 55.0:
-                    hotspots = profiler.format_hotspots()
-                if hotspots:
-                    status = f"{status} | {hotspots}"
-                padding = " " * max(0, last_status_len - len(status))
-                print(f"\r{status}{padding}", end="", flush=True)
-                last_status_len = len(status)
-
-                remaining = target_dt - (time.perf_counter() - step_start)
-                if remaining > 0.0:
-                    time.sleep(remaining)
-        except KeyboardInterrupt:
-            print()
-
-        if SAVE_TO_FILE:
-            recorder.save_all()
-        return
-
     runtime = {"recorder": PopulationRecorder(0.0, 0, 0, 0)}
     gui = SimulationGUI(
         width=WIDTH,
@@ -1671,7 +1347,6 @@ async def main() -> None:
         on_save_wolf=lambda: runtime["recorder"].save_wolf(),
         on_save_grass=lambda: runtime["recorder"].save_grass(),
         control_specs=SIMULATION_CONTROL_SPECS,
-        toggle_specs=SIMULATION_TOGGLE_SPECS,
         control_values=default_simulation_settings(),
         plant_growth_sec=PLANT_GROWTH_SEC,
         animation_enabled=ANIMATION,
