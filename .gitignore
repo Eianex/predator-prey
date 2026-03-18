@@ -12,7 +12,7 @@ data_grass.csv
 data_sheep.csv
 data_wolf.csv
 # C extensions
-*.so
+# *.so
 
 # Distribution / packaging
 .Python

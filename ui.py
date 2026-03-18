@@ -610,7 +610,7 @@ class SimulationGUI:
         animation_enabled: bool = False,
     ):
         pygame.init()
-        pygame.display.set_caption("Wolf-Sheep Prototype")
+        pygame.display.set_caption("Predator Prey Simulation")
 
         self.width = width
         self.height = height
@@ -794,7 +794,9 @@ class SimulationGUI:
         values: dict[str, float | bool] = {
             control.spec.key: control.value for control in self.controls
         }
-        values.update({control.spec.key: control.value for control in self.toggle_controls})
+        values.update(
+            {control.spec.key: control.value for control in self.toggle_controls}
+        )
         return values
 
     def tick(self) -> float:
