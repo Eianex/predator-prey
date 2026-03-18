@@ -2,7 +2,7 @@
 
 Agents: Sheep, Wolves, and Grass.
 
-Public DEMO: https://predatoryprey.com
+Public DEMO: https://predatorypreys.com
 
 Optimized both for: 
 - Local By Numba
