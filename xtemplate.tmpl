@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<script src="https://pygame-web.github.io/cdn/0.9.3/pythons.js" type=module id="site" data-python="python3.13" data-LINES=42 data-COLUMNS=132 data-os="vtx,snd,gui" async defer>#<!--
+
+print("""
+Loading Predator Prey Simulation from wolfs.apk
+    Pygbag Version : 0.9.3
+    Template Version : 0.9.3
+    Python  : 3.13
+    CDN URL : https://pygame-web.github.io/cdn/0.9.3/
+    Screen  : 1700x800
+    Title   : Predator Prey Simulation
+    Folder  : wolfs
+    Authors : pgw
+    SPDX-License-Identifier: cookiecutter.spdx
+
+""")
+
+import sys
+import asyncio
+import platform
+import json
+from pathlib import Path
+
+# do not rename
+async def custom_site():
+    import embed
+    platform.document.body.style.background = "#7f7f7f"
+
+    platform.window.transfer.hidden = true
+    platform.window.canvas.style.visibility = "visible"
+
+    bundle = "wolfs"
+
+    # the C or js loader could do that but be explicit.
+    appdir = Path(f"/data/data/{bundle}")  # /data/data/wolfs
+    appdir.mkdir()
+
+    # unpack filesystem from compressed archive into work dir
+    if platform.window.location.host.find('.itch.zone') > 0:
+        import zipfile
+        async with platform.fopen("wolfs.apk", "rb") as archive:
+            with zipfile.ZipFile(archive) as zip_ref:
+                zip_ref.extractall(appdir.as_posix())
+    else:
+        import tarfile
+        async with platform.fopen("wolfs.tar.gz", "rb") as archive:
+            tar = tarfile.open(fileobj=archive, mode="r:gz")
+            tar.extractall(path=appdir.as_posix(), filter='tar')
+            tar.close()
+
+    # preloader will change to work dir and prepend it to sys.path
+    platform.run_main(PyConfig, loaderhome=appdir / "assets", loadermain=None)
+
+    # wait preloading complete : that includes images and wasm compilation of bundled modules
+    while embed.counter() < 0:
+        await asyncio.sleep(.1)
+
+    main = appdir / "assets" / "main.py"
+
+    # test/wait user media interaction
+    if not platform.window.MM.UME:
+        __import__(__name__).__file__ = main
+
+        msg = "Ready to start ! Please click/touch page"
+        platform.window.infobox.innerText = msg
+        print("\n" * 4, f"    * Waiting for media user engagement. {msg} *", "\n" * 4)
+
+        while not platform.window.MM.UME:
+            await asyncio.sleep(.1)
+
+    await TopLevel_async_handler.start_toplevel(platform.shell, console=window.python.config.debug)
+
+    __import__(__name__).__file__ = main
+
+    def ui_callback(pkg):
+        platform.window.infobox.innerText = f"installing {pkg}"
+
+    await shell.source(main, callback=ui_callback)
+
+    platform.window.infobox.style.display = "none"
+    platform.window.config.gui_divider = 1
+    platform.window.window_resize()
+    print("predatorprey.tmpl: done")
+
+    shell.interactive()
+
+asyncio.run(custom_site())
+
+# BEGIN BLOCK
+#
+# now this is the html part you can (and should) customize
+# It is not mandatory : pygame-script when it reads the first line (also called
+# shebang ) of above code create absolute minimal widget set
+# required for running with default rules
+#
+# do not alter that comment block it is separating python code from html code
+# =============================================================================
+# --></script><head><!--
+//=============================================================================
+//
+//
+//
+//
+//
+//
+//
+//
+
+    {%- if cookiecutter.comment != "" -%}
+{{cookiecutter.comment}}
+    {% endif %}
+
+--><script type="application/javascript">
+// END BLOCK
+
+config = {
+    xtermjs : "1",
+    _sdl2 : "canvas",
+    user_canvas : 0,
+    user_canvas_managed : 0,
+    gui_divider : 2,
+    ume_block : 1,
+    can_close : 0,
+    archive : "wolfs",
+    gui_debug : 2,
+    cdn : "https://pygame-web.github.io/cdn/0.9.3/",
+    autorun : 0,
+    PYBUILD : "3.13",
+    fb_ar : 2.125,
+    fb_width : "1700",
+    fb_height : "800"
+}
+
+function show_infobox() {
+    infobox.style.display = "block";
+    const w = infobox.offsetWidth;
+    const h = infobox.offsetHeight;
+    const left = (window.innerWidth - w) / 2;
+    const top = (window.innerHeight - h) / 2;
+    infobox.style.left = left + "px";
+    infobox.style.top = top + "px";
+}
+
+function force_canvas_size() {
+    const c = document.getElementById("canvas");
+    const c3 = document.getElementById("canvas3d");
+
+    for (const el of [c, c3]) {
+        if (!el) continue;
+        el.width = 1700;
+        el.height = 800;
+        el.style.width = "100vw";
+        el.style.height = "100vh";
+        el.style.position = "absolute";
+        el.style.top = "0";
+        el.style.left = "0";
+    }
+}
+
+</script>
+
+    <title>Predator Prey Simulation</title>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="height=device-height, initial-scale=1.0">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes"/>
+
+    <link rel="icon" type="image/png" href="favicon.png" sizes="16x16">
+
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background-color: powderblue;
+        }
+
+        body {
+            font-family: arial;
+        }
+
+        #status {
+            display: inline-block;
+            vertical-align: top;
+            margin-top: 20px;
+            margin-left: 30px;
+            font-weight: bold;
+            color: rgb(120, 120, 120);
+        }
+
+        #progress {
+            height: 20px;
+            width: 300px;
+        }
+
+        #infobox {
+            position: fixed;
+            background: green;
+            color: blue;
+            font-weight: bold;
+            padding: 12px 24px;
+            z-index: 999999;
+        }
+
+        div.emscripten { text-align: center; }
+        div.emscripten_border { border: 1px solid black; }
+        div.thick_border { border: 4px solid black; }
+
+        canvas.emscripten {
+            border: 0;
+            background-color: transparent;
+            width: 100vw;
+            height: 100vh;
+            z-index: 5;
+            padding: 0;
+            margin: 0;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .topright {
+            position: absolute;
+            top: 0;
+            right: 0;
+        }
+
+        .bottomright {
+            position: absolute;
+            top: 40%;
+            right: 0;
+        }
+
+        .center {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .trinfo {
+            position: relative;
+            right: 0;
+            border: 1px solid black;
+        }
+
+        .framed {
+            position: relative;
+            top: 150px;
+            right: 10px;
+            border: 1px solid black;
+        }
+    </style>
+
+    <script>
+/*
+        if (navigator.serviceWorker)
+            navigator.serviceWorker.register("https://pygame-web.github.io/cdn/0.9.3/pygbag0.9.3.js")
+        else
+            console.warn("Service workers not supported")
+*/
+    </script>
+
+    <script src="https://pygame-web.github.io/cdn/0.9.3//browserfs.min.js"></script>
+
+</head>
+
+<body>
+
+    <div id="transfer" align=center>
+        <div class="emscripten" id="status">Downloading...</div>
+        <div class="emscripten">
+            <progress value="0" max="100" id="progress"></progress>
+        </div>
+    </div>
+
+    <canvas class="emscripten" id="canvas"
+        width="1700"
+        height="800"
+        oncontextmenu="event.preventDefault()" tabindex=1>
+    </canvas>
+
+    <canvas class="emscripten" id="canvas3d"
+        width="1700"
+        height="800"
+        oncontextmenu="event.preventDefault()" tabindex=1 hidden>
+    </canvas>
+
+    <div id="infobox">Loading, please wait ...</div>
+
+    <div id=html></div>
+
+    <div id=crt class=bottomright>
+
+        <div id="system" hidden>
+            <div class="button-container">
+                <button id="aiostop" disabled>AIO ⏏︎</button>
+                <button id="aiopaused_true" disabled>AIO ■</button>
+                <button id="aiopaused_false" disabled>AIO ▶</button>
+                <button id="pygame_mixer_music_pause" disabled>Music ■</button>
+            </div>
+
+            <div class="button-container">
+                <div id=load_min>min</div>
+                <div id=load_avg>avg</div>
+                <div id=load_max>max</div>
+                <button id="load_rst" disabled>RESET</button>
+            </div>
+
+            <div id="level">(battery level unknown)</div>
+            <div id="stateBattery">(charging state unknown)</div>
+        </div>
+
+        <div id=box class="emscripten_border" hidden=true>
+            <div id="info" class="trinfo"></div>
+
+            <iframe id="iframe" class="framed" name="iframe"
+                width="470px" height="90%"
+                allowtransparency="true"
+                style="z-index: 10;"
+                style="background: #FFFFFF;"
+                frameborder="1"
+                allowfullscreen="true"
+                webkitallowfullscreen="true"
+                msallowfullscreen="true"
+                mozallowfullscreen="true"
+                sandbox="allow-same-origin allow-top-navigation allow-scripts allow-pointer-lock"
+                allow="autoplay; fullscreen *; geolocation; microphone; camera; midi; monetization; xr-spatial-tracking; gamepad; gyroscope; accelerometer; xr; cross-origin-isolated"
+                src="https://pygame-web.github.io/cdn/0.9.3/empty.html"
+                scrolling="yes">
+            </iframe>
+        </div>
+
+    </div>
+
+    <div id="dlg" hidden>
+        <input type="file" id="dlg_multifile" multiple accept="image/*">
+        <label for="dlg_multifile">Select files</label>
+    </div>
+
+    <div id="pyconsole">
+        <div id="terminal" tabIndex=1 align="left"></div>
+    </div>
+
+    <script type="application/javascript">
+
+    globalThis.__canvas_resized = (self, ecw, ech) => {
+        console.warn("TODO: panda3d canvas monitor", self, ecw, ech)
+    }
+
+    async function custom_onload(debug_hidden) {
+        console.log(__FILE__, "custom_onload")
+
+        pyconsole.hidden = debug_hidden
+        system.hidden = debug_hidden
+        transfer.hidden = debug_hidden
+        info.hidden = debug_hidden
+        box.hidden = debug_hidden
+
+        force_canvas_size()
+        show_infobox()
+    }
+
+    function custom_prerun() {
+        console.log(__FILE__, "custom_prerun")
+        force_canvas_size()
+    }
+
+    function custom_postrun() {
+        console.log(__FILE__, "custom_postrun")
+        force_canvas_size()
+
+        setTimeout(() => {
+            force_canvas_size()
+            if (typeof window_resize === "function") window_resize()
+            window.dispatchEvent(new Event("resize"))
+        }, 50)
+
+        setTimeout(() => {
+            force_canvas_size()
+            if (typeof window_resize === "function") window_resize()
+            window.dispatchEvent(new Event("resize"))
+        }, 250)
+
+        setTimeout(() => {
+            force_canvas_size()
+            if (typeof window_resize === "function") window_resize()
+            window.dispatchEvent(new Event("resize"))
+        }, 750)
+    }
+
+    function debug() {
+        python.config.debug = true
+        custom_onload(false)
+        Module.PyRun_SimpleString("shell.uptime()")
+        window_resize()
+    }
+
+    function info_inline(data) {
+        document.getElementById("info").innerHTML = data
+    }
+
+    function info_online(url) {
+        fetch(url)
+            .then((response) => response.text())
+            .then((html) => {
+                info_inline(html);
+            })
+            .catch((error) => {
+                console.warn(error);
+            });
+    }
+
+    function frame_online(url) {
+        window.frames["iframe"].location = url;
+    }
+
+    </script>
+
+</body>
+</html>
