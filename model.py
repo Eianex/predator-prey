@@ -10,7 +10,6 @@ import math
 import random
 import time
 from collections import deque
-from pathlib import Path
 
 from pygame.math import Vector2
 
@@ -21,7 +20,7 @@ from motors import (
     TargetStraightMotor,
 )
 from ui import SimulationGUI
-from save_csv import PopulationRecorder
+from save_csv import PopulationRecorder, open_text_with_dialog, save_text_with_dialog
 
 
 class FunctionProfiler:
@@ -304,9 +303,6 @@ SIMULATION_TOGGLE_SPECS = [
     },
 ]
 
-SETTINGS_FILE_PATH = Path("settings.txt")
-
-
 def default_simulation_settings() -> dict[str, float | bool]:
     return {
         "NUM_SHEEP": float(NUM_SHEEP),
@@ -340,7 +336,7 @@ def _parse_bool_setting(raw_value: str) -> bool:
     raise ValueError(f"Unsupported boolean value: {raw_value}")
 
 
-def save_simulation_settings(settings: dict[str, float | bool]) -> None:
+def _format_simulation_settings(settings: dict[str, float | bool]) -> str:
     defaults = default_simulation_settings()
     lines: list[str] = []
     for spec in SIMULATION_CONTROL_SPECS:
@@ -357,17 +353,12 @@ def save_simulation_settings(settings: dict[str, float | bool]) -> None:
         formatted = "true" if bool(settings.get(key, defaults[key])) else "false"
         lines.append(f"{key}={formatted}")
 
-    SETTINGS_FILE_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"Saved settings to {SETTINGS_FILE_PATH}")
+    return "\n".join(lines) + "\n"
 
 
-def load_simulation_settings() -> dict[str, float | bool] | None:
-    if not SETTINGS_FILE_PATH.exists():
-        print(f"Settings file not found: {SETTINGS_FILE_PATH}")
-        return None
-
+def _parse_simulation_settings_text(text: str) -> dict[str, float | bool]:
     settings = default_simulation_settings()
-    for raw_line in SETTINGS_FILE_PATH.read_text(encoding="utf-8").splitlines():
+    for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -386,8 +377,41 @@ def load_simulation_settings() -> dict[str, float | bool] | None:
                 settings[key] = float(raw_value)
         except ValueError:
             print(f"Ignoring invalid value for {key}: {raw_value}")
+    return settings
 
-    print(f"Imported settings from {SETTINGS_FILE_PATH}")
+
+def save_simulation_settings(settings: dict[str, float | bool]) -> None:
+    save_text_with_dialog(
+        _format_simulation_settings(settings),
+        title="Save Settings",
+        default_name="settings.txt",
+        description="Text files",
+        extension=".txt",
+        mime_type="text/plain",
+    )
+
+
+def import_simulation_settings(
+    gui: SimulationGUI | None = None,
+) -> dict[str, float | bool] | None:
+    def _apply_imported_text(text: str) -> None:
+        settings = _parse_simulation_settings_text(text)
+        if gui is not None:
+            gui.set_control_values(settings)
+        print("Imported settings from selected file")
+
+    imported_text = open_text_with_dialog(
+        title="Import Settings",
+        description="Text files",
+        extension=".txt",
+        mime_type="text/plain",
+        on_loaded=_apply_imported_text if gui is not None else None,
+    )
+    if imported_text is None:
+        return None
+
+    settings = _parse_simulation_settings_text(imported_text)
+    print("Imported settings from selected file")
     return settings
 
 
@@ -1699,7 +1723,7 @@ def main() -> None:
             print()
 
         if SAVE_TO_FILE:
-            recorder.save_all()
+            recorder.save_all(use_dialog=False)
         return
 
     runtime = {"recorder": PopulationRecorder(0.0, 0, 0, 0)}
@@ -1715,7 +1739,7 @@ def main() -> None:
         initial_grass_count=0,
         on_save_data=lambda: runtime["recorder"].save_all(),
         on_save_settings=save_simulation_settings,
-        on_import_settings=load_simulation_settings,
+        on_import_settings=lambda: import_simulation_settings(gui),
         control_specs=SIMULATION_CONTROL_SPECS,
         toggle_specs=SIMULATION_TOGGLE_SPECS,
         control_values=default_simulation_settings(),
@@ -1790,7 +1814,7 @@ def main() -> None:
     gui.close()
 
     if SAVE_TO_FILE:
-        runtime["recorder"].save_all()
+        runtime["recorder"].save_all(use_dialog=False)
 
 
 if __name__ == "__main__":
