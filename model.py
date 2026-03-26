@@ -10,6 +10,7 @@ import math
 import random
 import time
 from collections import deque
+from pathlib import Path
 
 from pygame.math import Vector2
 
@@ -303,6 +304,8 @@ SIMULATION_TOGGLE_SPECS = [
     },
 ]
 
+SETTINGS_FILE_PATH = Path("settings.txt")
+
 
 def default_simulation_settings() -> dict[str, float | bool]:
     return {
@@ -326,6 +329,66 @@ def default_simulation_settings() -> dict[str, float | bool]:
         "WOLF_EAT_ALL": WOLF_EAT_ALL,
         "SHEEP_EAT_ALL": SHEEP_EAT_ALL,
     }
+
+
+def _parse_bool_setting(raw_value: str) -> bool:
+    normalized = raw_value.strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    raise ValueError(f"Unsupported boolean value: {raw_value}")
+
+
+def save_simulation_settings(settings: dict[str, float | bool]) -> None:
+    defaults = default_simulation_settings()
+    lines: list[str] = []
+    for spec in SIMULATION_CONTROL_SPECS:
+        key = spec["key"]
+        value = float(settings.get(key, defaults[key]))
+        if spec.get("integer", False):
+            formatted = str(int(round(value)))
+        else:
+            formatted = f"{value:.{int(spec.get('decimals', 2))}f}"
+        lines.append(f"{key}={formatted}")
+
+    for spec in SIMULATION_TOGGLE_SPECS:
+        key = spec["key"]
+        formatted = "true" if bool(settings.get(key, defaults[key])) else "false"
+        lines.append(f"{key}={formatted}")
+
+    SETTINGS_FILE_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Saved settings to {SETTINGS_FILE_PATH}")
+
+
+def load_simulation_settings() -> dict[str, float | bool] | None:
+    if not SETTINGS_FILE_PATH.exists():
+        print(f"Settings file not found: {SETTINGS_FILE_PATH}")
+        return None
+
+    settings = default_simulation_settings()
+    for raw_line in SETTINGS_FILE_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        raw_value = raw_value.strip()
+        if key not in settings:
+            continue
+
+        default_value = settings[key]
+        try:
+            if isinstance(default_value, bool):
+                settings[key] = _parse_bool_setting(raw_value)
+            else:
+                settings[key] = float(raw_value)
+        except ValueError:
+            print(f"Ignoring invalid value for {key}: {raw_value}")
+
+    print(f"Imported settings from {SETTINGS_FILE_PATH}")
+    return settings
 
 
 def apply_simulation_settings(settings: dict[str, float | bool]) -> None:
@@ -1651,6 +1714,8 @@ def main() -> None:
         initial_wolf_count=0,
         initial_grass_count=0,
         on_save_data=lambda: runtime["recorder"].save_all(),
+        on_save_settings=save_simulation_settings,
+        on_import_settings=load_simulation_settings,
         control_specs=SIMULATION_CONTROL_SPECS,
         toggle_specs=SIMULATION_TOGGLE_SPECS,
         control_values=default_simulation_settings(),
