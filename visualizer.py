@@ -59,7 +59,7 @@ def read_samples(path: Path) -> list[Sample]:
 def format_csv_value(value: float) -> str:
     if abs(value - round(value)) < 1e-9:
         return str(int(round(value)))
-    return f"{value:.6f}"
+    return f"{value:.2f}"
 
 
 def write_samples(path: Path, samples: list[Sample]) -> None:
@@ -69,7 +69,7 @@ def write_samples(path: Path, samples: list[Sample]) -> None:
         for sample in samples:
             writer.writerow(
                 [
-                    f"{sample.time_sec:.6f}",
+                    f"{sample.time_sec:.2f}",
                     format_csv_value(sample.plants),
                     format_csv_value(sample.sheep),
                     format_csv_value(sample.wolves),
@@ -102,7 +102,7 @@ def normalize_values(values: np.ndarray) -> np.ndarray:
 
 def fit_sine_to_normalized_series(
     times: np.ndarray, values: np.ndarray
-) -> tuple[np.ndarray, float, float, float] | None:
+) -> tuple[np.ndarray, float, float, float, float] | None:
     if len(times) < 3:
         return None
 
@@ -111,7 +111,7 @@ def fit_sine_to_normalized_series(
     if duration <= 0.0:
         return None
 
-    cycle_min = 0.25
+    cycle_min = 1.0
     cycle_max = max(1.0, min(len(times) / 2.0, 24.0))
     cycle_candidates = np.linspace(cycle_min, cycle_max, 140)
     phase_candidates = np.linspace(-np.pi, np.pi, 180, endpoint=False)
@@ -121,17 +121,34 @@ def fit_sine_to_normalized_series(
     best_omega = 0.0
     best_phase = 0.0
     best_y0 = 0.0
+    best_amplitude = 0.0
+    mean_values = float(np.mean(values))
 
     for cycles in cycle_candidates:
         omega = (2.0 * np.pi * cycles) / duration
-        angular_times = omega * shifted_times[:, None] + phase_candidates[None, :]
-        sine_terms = 0.5 * np.sin(angular_times)
-        y0_candidates = np.clip(
-            np.mean(values[:, None] - sine_terms, axis=0),
-            0.0,
-            1.0,
+        sine_terms = np.sin(omega * shifted_times[:, None] + phase_candidates[None, :])
+        mean_sine = np.mean(sine_terms, axis=0)
+        centered_sine = sine_terms - mean_sine[None, :]
+        variance = np.mean(centered_sine**2, axis=0)
+        covariance = np.mean(
+            (values[:, None] - mean_values) * centered_sine,
+            axis=0,
         )
-        sine_bank = y0_candidates[None, :] + sine_terms
+        amplitude_candidates = np.divide(
+            covariance,
+            variance,
+            out=np.zeros_like(covariance),
+            where=variance > 1e-12,
+        )
+        y0_candidates = np.clip(mean_values - (amplitude_candidates * mean_sine), 0.0, 1.0)
+        amplitude_denominator = np.mean(sine_terms**2, axis=0)
+        amplitude_candidates = np.divide(
+            np.mean((values[:, None] - y0_candidates[None, :]) * sine_terms, axis=0),
+            amplitude_denominator,
+            out=amplitude_candidates,
+            where=amplitude_denominator > 1e-12,
+        )
+        sine_bank = y0_candidates[None, :] + (amplitude_candidates[None, :] * sine_terms)
         errors = np.mean((sine_bank - values[:, None]) ** 2, axis=0)
         phase_index = int(np.argmin(errors))
         error = float(errors[phase_index])
@@ -140,11 +157,15 @@ def fit_sine_to_normalized_series(
             best_omega = omega
             best_phase = float(phase_candidates[phase_index])
             best_y0 = float(y0_candidates[phase_index])
+            best_amplitude = float(amplitude_candidates[phase_index])
             best_curve = sine_bank[:, phase_index]
 
     if best_curve is None:
         return None
-    return best_curve, best_omega, best_phase, best_y0
+    if best_amplitude < 0.0:
+        best_amplitude = -best_amplitude
+        best_phase = ((best_phase + np.pi) + np.pi) % (2.0 * np.pi) - np.pi
+    return best_curve, best_omega, best_phase, best_y0, best_amplitude
 
 
 class VisualizerApp:
@@ -497,10 +518,22 @@ class VisualizerApp:
             if show_sine_fit:
                 sine_fit = fit_sine_to_normalized_series(times, values)
                 if sine_fit is not None:
-                    _approx_values, omega, phase, y0 = sine_fit
-                    self._plot_sine_approximation(times, omega, phase, y0, color, name)
+                    _approx_values, omega, phase, y0, amplitude = sine_fit
+                    self._plot_sine_approximation(
+                        times,
+                        omega,
+                        phase,
+                        y0,
+                        amplitude,
+                        color,
+                        name,
+                    )
                     sine_formulas.append(
-                        (name, color, self._format_sine_formula(omega, phase, y0))
+                        (
+                            name,
+                            color,
+                            self._format_sine_formula(omega, phase, y0, amplitude),
+                        )
                     )
 
         y_limit_top = 1.0 if is_normalized else max_population * 1.08
@@ -532,7 +565,7 @@ class VisualizerApp:
             self._render_sine_formulas(sine_formulas)
 
         self._render_histogram(visible_series)
-        crop_info = f"Start T={plot_data.crop_start_time:g}s"
+        crop_info = f"Start T={plot_data.crop_start_time:.2f}s"
         if plot_data.shifted_to_zero:
             crop_info += " | shifted to zero"
         if self.normalized_var.get():
@@ -570,13 +603,14 @@ class VisualizerApp:
         omega: float,
         phase: float,
         y0: float,
+        amplitude: float,
         color: str,
         label: str,
     ) -> None:
         dense_count = max(300, len(times) * 12)
         dense_times = np.linspace(times[0], times[-1], dense_count)
         shifted_times = dense_times - float(times[0])
-        approximation = y0 + 0.5 * np.sin((omega * shifted_times) + phase)
+        approximation = y0 + amplitude * np.sin((omega * shifted_times) + phase)
         self.graph_axis.plot(
             dense_times,
             approximation,
@@ -588,8 +622,10 @@ class VisualizerApp:
             label=f"{label} sine",
         )
 
-    def _format_sine_formula(self, omega: float, phase: float, y0: float) -> str:
-        return f"y = {y0:.4f} + 0.5*sin({omega:.4f}*t{phase:+.4f})"
+    def _format_sine_formula(
+        self, omega: float, phase: float, y0: float, amplitude: float
+    ) -> str:
+        return f"y = {y0:.2f} + {amplitude:.2f}*sin({omega:.2f}*t{phase:+.2f})"
 
     def _render_sine_formulas(self, formulas: list[tuple[str, str, str]]) -> None:
         y_position = 0.98
