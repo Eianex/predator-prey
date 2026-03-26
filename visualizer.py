@@ -110,6 +110,7 @@ class VisualizerApp:
         self.show_plants_var = tk.BooleanVar(value=True)
         self.show_sheep_var = tk.BooleanVar(value=True)
         self.show_wolves_var = tk.BooleanVar(value=True)
+        self.normalized_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Open a CSV file to visualize it.")
 
         self._build_layout()
@@ -190,6 +191,12 @@ class VisualizerApp:
             variable=self.show_wolves_var,
             command=self.render_plot,
         ).grid(row=0, column=3, padx=(0, 10))
+        ttk.Checkbutton(
+            species_controls,
+            text="Normalized",
+            variable=self.normalized_var,
+            command=self.render_plot,
+        ).grid(row=0, column=4, padx=(0, 10))
 
         status_label = ttk.Label(
             self.root,
@@ -362,24 +369,41 @@ class VisualizerApp:
         self.graph_axis.spines["left"].set_color("#938a79")
         self.graph_axis.spines["bottom"].set_color("#938a79")
 
+        is_normalized = self.normalized_var.get()
         max_population = 1.0
         for name, values, color in visible_series:
-            self._plot_smoothed_line(times, values, color, name)
-            max_population = max(max_population, float(values.max()))
+            plot_values = values
+            if is_normalized:
+                peak_value = float(values.max())
+                if peak_value > 1e-9:
+                    plot_values = values / peak_value
+                else:
+                    plot_values = np.zeros_like(values)
+                max_population = 1.0
+            else:
+                max_population = max(max_population, float(values.max()))
+            self._plot_smoothed_line(times, plot_values, color, name)
 
-        self.graph_axis.set_ylim(0.0, max_population * 1.08)
+        y_limit_top = 1.0 if is_normalized else max_population * 1.08
+        self.graph_axis.set_ylim(0.0, y_limit_top)
         self.graph_axis.set_xlim(
             float(times[0]),
             float(times[-1]) if len(times) > 1 else float(times[0]) + 1.0,
         )
-        self.graph_axis.set_ylabel("Population", color=TEXT_COLOR)
+        self.graph_axis.set_ylabel(
+            "Normalized population" if is_normalized else "Population",
+            color=TEXT_COLOR,
+        )
         self.graph_axis.set_xlabel("Time [s]", color=TEXT_COLOR, labelpad=4)
         self.graph_axis.tick_params(colors=TEXT_COLOR)
         self.graph_axis.xaxis.set_major_locator(MaxNLocator(nbins=8, integer=True))
         self.graph_axis.xaxis.set_major_formatter(
             FuncFormatter(lambda value, _pos: str(int(round(value))))
         )
-        self.graph_axis.yaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
+        if is_normalized:
+            self.graph_axis.yaxis.set_major_locator(MaxNLocator(nbins=6))
+        else:
+            self.graph_axis.yaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
 
         title = self.title_var.get().strip()
         if title:
@@ -389,6 +413,8 @@ class VisualizerApp:
         crop_info = f"Start T={plot_data.crop_start_time:g}s"
         if plot_data.shifted_to_zero:
             crop_info += " | shifted to zero"
+        if self.normalized_var.get():
+            crop_info += " | normalized"
         visible_labels = ", ".join(name for name, _, _ in visible_series)
         self.status_var.set(
             f"{crop_info} | Visible samples: {len(samples)} | Showing: {visible_labels}"
