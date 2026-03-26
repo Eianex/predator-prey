@@ -128,7 +128,7 @@ SHEEP_EAT_ALL = False
 PLANT_REPRODUCTION_RADIUS = PLANT_SCALE
 PLANT_NEARBY_RADIUS_MULT = 1.01
 PLANT_NEARBY_LIMIT = 3
-PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.1
+PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 1
 
 SHEEP_TYPE_OF_REPRODUCTION = "asexual"
 WOLF_TYPE_OF_REPRODUCTION = "asexual"
@@ -249,7 +249,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "PLANT_REPRODUCTION_PERIOD_SEC",
         "label": "Grass reproduction period [s]",
         "minimum": 0.0,
-        "maximum": 60.0,
+        "maximum": 5.0,
         "step": 0.1,
         "integer": False,
         "decimals": 1,
@@ -1650,9 +1650,7 @@ def main() -> None:
         initial_sheep_count=0,
         initial_wolf_count=0,
         initial_grass_count=0,
-        on_save_sheep=lambda: runtime["recorder"].save_sheep(),
-        on_save_wolf=lambda: runtime["recorder"].save_wolf(),
-        on_save_grass=lambda: runtime["recorder"].save_grass(),
+        on_save_data=lambda: runtime["recorder"].save_all(),
         control_specs=SIMULATION_CONTROL_SPECS,
         toggle_specs=SIMULATION_TOGGLE_SPECS,
         control_values=default_simulation_settings(),

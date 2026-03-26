@@ -466,10 +466,12 @@ class PopulationGraph:
         label: str,
         color: tuple[int, int, int],
         initial_value: int,
+        show_save_button: bool = False,
     ):
         self.rect = rect
         self.label = label
         self.color = color
+        self.show_save_button = show_save_button
         self.save_button_rect = pygame.Rect(
             self.rect.right - 96, self.rect.y + 8, 84, 22
         )
@@ -489,7 +491,7 @@ class PopulationGraph:
         self.save_flash_timer = 1.0
 
     def is_save_button_clicked(self, mouse_pos: tuple[int, int]) -> bool:
-        return self.save_button_rect.collidepoint(mouse_pos)
+        return self.show_save_button and self.save_button_rect.collidepoint(mouse_pos)
 
     def update(self, dt: float) -> None:
         target_value = self.samples[-1][1]
@@ -525,23 +527,24 @@ class PopulationGraph:
         surface.blit(title, (self.rect.x + 12, self.rect.y + 8))
         surface.blit(value, (self.rect.x + 12, self.rect.y + 30))
 
-        if self.save_flash_timer > 0.0:
-            btn_color = (66, 120, 70)
-            btn_label = "Saved"
-        else:
-            btn_color = (47, 62, 66)
-            btn_label = "Save CSV"
-        pygame.draw.rect(surface, btn_color, self.save_button_rect, border_radius=6)
-        pygame.draw.rect(
-            surface,
-            (120, 140, 145),
-            self.save_button_rect,
-            width=1,
-            border_radius=6,
-        )
-        btn_text = small_font.render(btn_label, True, (225, 236, 230))
-        btn_rect = btn_text.get_rect(center=self.save_button_rect.center)
-        surface.blit(btn_text, btn_rect)
+        if self.show_save_button:
+            if self.save_flash_timer > 0.0:
+                btn_color = (66, 120, 70)
+                btn_label = "Saved"
+            else:
+                btn_color = (47, 62, 66)
+                btn_label = "Save CSV"
+            pygame.draw.rect(surface, btn_color, self.save_button_rect, border_radius=6)
+            pygame.draw.rect(
+                surface,
+                (120, 140, 145),
+                self.save_button_rect,
+                width=1,
+                border_radius=6,
+            )
+            btn_text = small_font.render(btn_label, True, (225, 236, 230))
+            btn_rect = btn_text.get_rect(center=self.save_button_rect.center)
+            surface.blit(btn_text, btn_rect)
 
         plot_rect = pygame.Rect(
             self.rect.x + 12,
@@ -600,9 +603,7 @@ class SimulationGUI:
         initial_sheep_count: int,
         initial_wolf_count: int,
         initial_grass_count: int,
-        on_save_sheep: Callable[[], None],
-        on_save_wolf: Callable[[], None],
-        on_save_grass: Callable[[], None],
+        on_save_data: Callable[[], None],
         control_specs: list[dict],
         toggle_specs: list[dict],
         control_values: dict[str, float | bool],
@@ -648,9 +649,7 @@ class SimulationGUI:
         self._pending_start_request = False
         self._pending_clear_request = False
 
-        self.on_save_sheep = on_save_sheep
-        self.on_save_wolf = on_save_wolf
-        self.on_save_grass = on_save_grass
+        self.on_save_data = on_save_data
 
         self.painter = Painter(
             sheep_scale,
@@ -724,6 +723,7 @@ class SimulationGUI:
             "Sheep Population",
             SHEEP_GRAPH_COLOR,
             initial_sheep_count,
+            show_save_button=True,
         )
         self.wolf_graph = PopulationGraph(
             pygame.Rect(
@@ -866,22 +866,8 @@ class SimulationGUI:
                     and self.sheep_graph is not None
                     and self.sheep_graph.is_save_button_clicked(pos)
                 ):
-                    self.on_save_sheep()
+                    self.on_save_data()
                     self.sheep_graph.mark_saved()
-                elif (
-                    self.show_graphs
-                    and self.wolf_graph is not None
-                    and self.wolf_graph.is_save_button_clicked(pos)
-                ):
-                    self.on_save_wolf()
-                    self.wolf_graph.mark_saved()
-                elif (
-                    self.show_graphs
-                    and self.grass_graph is not None
-                    and self.grass_graph.is_save_button_clicked(pos)
-                ):
-                    self.on_save_grass()
-                    self.grass_graph.mark_saved()
                 else:
                     self._handle_control_mouse_down(pos)
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -962,7 +948,7 @@ class SimulationGUI:
             else BUTTON_PAUSE_COLOR
         )
         self._draw_button(self.play_button_rect, play_label, play_color)
-        self._draw_button(self.clear_button_rect, "Clear", BUTTON_CLEAR_COLOR)
+        self._draw_button(self.clear_button_rect, "Clear Screen", BUTTON_CLEAR_COLOR)
 
         # hint = self.tiny_font.render(
         #    "Edit values, press Play. Clear drops the current run.",
