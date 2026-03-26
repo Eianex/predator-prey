@@ -20,7 +20,7 @@ from motors import (
     TargetStraightMotor,
 )
 from ui import SimulationGUI
-from save_csv import PopulationRecorder
+from save_csv import PopulationRecorder, open_text_with_dialog, save_text_with_dialog
 
 
 class FunctionProfiler:
@@ -128,7 +128,7 @@ SHEEP_EAT_ALL = False
 PLANT_REPRODUCTION_RADIUS = PLANT_SCALE
 PLANT_NEARBY_RADIUS_MULT = 1.01
 PLANT_NEARBY_LIMIT = 3
-PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 0.1
+PLANT_RANDOM_SPAWN_CHANCE_PER_SEC = 1
 
 SHEEP_TYPE_OF_REPRODUCTION = "asexual"
 WOLF_TYPE_OF_REPRODUCTION = "asexual"
@@ -249,7 +249,7 @@ SIMULATION_CONTROL_SPECS = [
         "key": "PLANT_REPRODUCTION_PERIOD_SEC",
         "label": "Grass reproduction period [s]",
         "minimum": 0.0,
-        "maximum": 60.0,
+        "maximum": 5.0,
         "step": 0.1,
         "integer": False,
         "decimals": 1,
@@ -303,7 +303,6 @@ SIMULATION_TOGGLE_SPECS = [
     },
 ]
 
-
 def default_simulation_settings() -> dict[str, float | bool]:
     return {
         "NUM_SHEEP": float(NUM_SHEEP),
@@ -326,6 +325,94 @@ def default_simulation_settings() -> dict[str, float | bool]:
         "WOLF_EAT_ALL": WOLF_EAT_ALL,
         "SHEEP_EAT_ALL": SHEEP_EAT_ALL,
     }
+
+
+def _parse_bool_setting(raw_value: str) -> bool:
+    normalized = raw_value.strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    raise ValueError(f"Unsupported boolean value: {raw_value}")
+
+
+def _format_simulation_settings(settings: dict[str, float | bool]) -> str:
+    defaults = default_simulation_settings()
+    lines: list[str] = []
+    for spec in SIMULATION_CONTROL_SPECS:
+        key = spec["key"]
+        value = float(settings.get(key, defaults[key]))
+        if spec.get("integer", False):
+            formatted = str(int(round(value)))
+        else:
+            formatted = f"{value:.{int(spec.get('decimals', 2))}f}"
+        lines.append(f"{key}={formatted}")
+
+    for spec in SIMULATION_TOGGLE_SPECS:
+        key = spec["key"]
+        formatted = "true" if bool(settings.get(key, defaults[key])) else "false"
+        lines.append(f"{key}={formatted}")
+
+    return "\n".join(lines) + "\n"
+
+
+def _parse_simulation_settings_text(text: str) -> dict[str, float | bool]:
+    settings = default_simulation_settings()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        raw_value = raw_value.strip()
+        if key not in settings:
+            continue
+
+        default_value = settings[key]
+        try:
+            if isinstance(default_value, bool):
+                settings[key] = _parse_bool_setting(raw_value)
+            else:
+                settings[key] = float(raw_value)
+        except ValueError:
+            print(f"Ignoring invalid value for {key}: {raw_value}")
+    return settings
+
+
+def save_simulation_settings(settings: dict[str, float | bool]) -> None:
+    save_text_with_dialog(
+        _format_simulation_settings(settings),
+        title="Save Settings",
+        default_name="settings.txt",
+        description="Text files",
+        extension=".txt",
+        mime_type="text/plain",
+    )
+
+
+def import_simulation_settings(
+    gui: SimulationGUI | None = None,
+) -> dict[str, float | bool] | None:
+    def _apply_imported_text(text: str) -> None:
+        settings = _parse_simulation_settings_text(text)
+        if gui is not None:
+            gui.set_control_values(settings)
+        print("Imported settings from selected file")
+
+    imported_text = open_text_with_dialog(
+        title="Import Settings",
+        description="Text files",
+        extension=".txt",
+        mime_type="text/plain",
+        on_loaded=_apply_imported_text if gui is not None else None,
+    )
+    if imported_text is None:
+        return None
+
+    settings = _parse_simulation_settings_text(imported_text)
+    print("Imported settings from selected file")
+    return settings
 
 
 def apply_simulation_settings(settings: dict[str, float | bool]) -> None:
@@ -1636,7 +1723,7 @@ def main() -> None:
             print()
 
         if SAVE_TO_FILE:
-            recorder.save_all()
+            recorder.save_all(use_dialog=False)
         return
 
     runtime = {"recorder": PopulationRecorder(0.0, 0, 0, 0)}
@@ -1650,9 +1737,9 @@ def main() -> None:
         initial_sheep_count=0,
         initial_wolf_count=0,
         initial_grass_count=0,
-        on_save_sheep=lambda: runtime["recorder"].save_sheep(),
-        on_save_wolf=lambda: runtime["recorder"].save_wolf(),
-        on_save_grass=lambda: runtime["recorder"].save_grass(),
+        on_save_data=lambda: runtime["recorder"].save_all(),
+        on_save_settings=save_simulation_settings,
+        on_import_settings=lambda: import_simulation_settings(gui),
         control_specs=SIMULATION_CONTROL_SPECS,
         toggle_specs=SIMULATION_TOGGLE_SPECS,
         control_values=default_simulation_settings(),
@@ -1727,7 +1814,7 @@ def main() -> None:
     gui.close()
 
     if SAVE_TO_FILE:
-        runtime["recorder"].save_all()
+        runtime["recorder"].save_all(use_dialog=False)
 
 
 if __name__ == "__main__":

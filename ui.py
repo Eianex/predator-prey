@@ -36,6 +36,9 @@ PLANT_ANIM_DIR = ANIM_DIR / "plant"
 TURN_DURATION_SEC = 0.5
 DEFAULT_PLANT_GROWTH_SEC = 5.0
 SHOW_GRAPHS = True
+CONTROL_ROW_HEIGHT = 34
+CONTROL_ROW_GAP = 0
+TOGGLE_ROW_GAP = 4
 
 
 @dataclass
@@ -75,6 +78,9 @@ class ToggleControl:
 
     def toggle(self) -> None:
         self.value = not self.value
+
+    def set_value(self, value: bool) -> None:
+        self.value = bool(value)
 
     def draw(
         self,
@@ -466,10 +472,12 @@ class PopulationGraph:
         label: str,
         color: tuple[int, int, int],
         initial_value: int,
+        show_save_button: bool = False,
     ):
         self.rect = rect
         self.label = label
         self.color = color
+        self.show_save_button = show_save_button
         self.save_button_rect = pygame.Rect(
             self.rect.right - 96, self.rect.y + 8, 84, 22
         )
@@ -489,7 +497,7 @@ class PopulationGraph:
         self.save_flash_timer = 1.0
 
     def is_save_button_clicked(self, mouse_pos: tuple[int, int]) -> bool:
-        return self.save_button_rect.collidepoint(mouse_pos)
+        return self.show_save_button and self.save_button_rect.collidepoint(mouse_pos)
 
     def update(self, dt: float) -> None:
         target_value = self.samples[-1][1]
@@ -525,23 +533,24 @@ class PopulationGraph:
         surface.blit(title, (self.rect.x + 12, self.rect.y + 8))
         surface.blit(value, (self.rect.x + 12, self.rect.y + 30))
 
-        if self.save_flash_timer > 0.0:
-            btn_color = (66, 120, 70)
-            btn_label = "Saved"
-        else:
-            btn_color = (47, 62, 66)
-            btn_label = "Save CSV"
-        pygame.draw.rect(surface, btn_color, self.save_button_rect, border_radius=6)
-        pygame.draw.rect(
-            surface,
-            (120, 140, 145),
-            self.save_button_rect,
-            width=1,
-            border_radius=6,
-        )
-        btn_text = small_font.render(btn_label, True, (225, 236, 230))
-        btn_rect = btn_text.get_rect(center=self.save_button_rect.center)
-        surface.blit(btn_text, btn_rect)
+        if self.show_save_button:
+            if self.save_flash_timer > 0.0:
+                btn_color = (66, 120, 70)
+                btn_label = "Saved"
+            else:
+                btn_color = (47, 62, 66)
+                btn_label = "Save CSV"
+            pygame.draw.rect(surface, btn_color, self.save_button_rect, border_radius=6)
+            pygame.draw.rect(
+                surface,
+                (120, 140, 145),
+                self.save_button_rect,
+                width=1,
+                border_radius=6,
+            )
+            btn_text = small_font.render(btn_label, True, (225, 236, 230))
+            btn_rect = btn_text.get_rect(center=self.save_button_rect.center)
+            surface.blit(btn_text, btn_rect)
 
         plot_rect = pygame.Rect(
             self.rect.x + 12,
@@ -600,9 +609,9 @@ class SimulationGUI:
         initial_sheep_count: int,
         initial_wolf_count: int,
         initial_grass_count: int,
-        on_save_sheep: Callable[[], None],
-        on_save_wolf: Callable[[], None],
-        on_save_grass: Callable[[], None],
+        on_save_data: Callable[[], None],
+        on_save_settings: Callable[[dict[str, float | bool]], None],
+        on_import_settings: Callable[[], dict[str, float | bool] | None],
         control_specs: list[dict],
         toggle_specs: list[dict],
         control_values: dict[str, float | bool],
@@ -637,20 +646,50 @@ class SimulationGUI:
         )
 
         button_y = 44
+        button_height = 30
         button_width = (CONTROL_PANEL_WIDTH - 44) // 2
-        self.play_button_rect = pygame.Rect(14, button_y, button_width, 34)
-        self.clear_button_rect = pygame.Rect(
-            28 + button_width, button_y, button_width, 34
+        settings_row_x = 14
+        settings_gap = 4
+        settings_row_width = CONTROL_PANEL_WIDTH - 28
+        reset_ratio = 0.46
+        save_ratio = 0.18
+        reset_button_width = int(settings_row_width * reset_ratio)
+        save_button_width = int(settings_row_width * save_ratio)
+        import_button_width = (
+            settings_row_width - reset_button_width - save_button_width - (settings_gap * 2)
         )
+        self.play_button_rect = pygame.Rect(14, button_y, button_width, button_height)
+        self.clear_button_rect = pygame.Rect(
+            28 + button_width, button_y, button_width, button_height
+        )
+        second_row_y = button_y + button_height + 4
+        self.reset_settings_button_rect = pygame.Rect(
+            settings_row_x, second_row_y, reset_button_width, button_height
+        )
+        self.save_settings_button_rect = pygame.Rect(
+            self.reset_settings_button_rect.right + settings_gap,
+            second_row_y,
+            save_button_width,
+            button_height,
+        )
+        self.import_settings_button_rect = pygame.Rect(
+            self.save_settings_button_rect.right + settings_gap,
+            second_row_y,
+            import_button_width,
+            button_height,
+        )
+        self.status_y = second_row_y + button_height + 8
+        self.controls_start_y = self.status_y + 24
 
         self.paused = True
         self.simulation_loaded = False
         self._pending_start_request = False
         self._pending_clear_request = False
 
-        self.on_save_sheep = on_save_sheep
-        self.on_save_wolf = on_save_wolf
-        self.on_save_grass = on_save_grass
+        self.on_save_data = on_save_data
+        self.on_save_settings = on_save_settings
+        self.on_import_settings = on_import_settings
+        self.default_control_values = dict(control_values)
 
         self.painter = Painter(
             sheep_scale,
@@ -661,7 +700,11 @@ class SimulationGUI:
         )
 
         self.controls = self._build_controls(control_specs, control_values)
-        toggle_start_y = 108 + len(self.controls) * 37 + 10
+        toggle_start_y = (
+            self.controls_start_y
+            + len(self.controls) * (CONTROL_ROW_HEIGHT + CONTROL_ROW_GAP)
+            + 8
+        )
         self.toggle_controls = self._build_toggle_controls(
             toggle_specs,
             control_values,
@@ -676,15 +719,14 @@ class SimulationGUI:
         self, control_specs: list[dict], control_values: dict[str, float | bool]
     ) -> list[NumericControl]:
         controls: list[NumericControl] = []
-        start_y = 108
-        row_height = 34
-        gap = 3
-        rect = pygame.Rect(12, start_y, CONTROL_PANEL_WIDTH - 24, row_height)
+        rect = pygame.Rect(
+            12, self.controls_start_y, CONTROL_PANEL_WIDTH - 24, CONTROL_ROW_HEIGHT
+        )
         for spec_data in control_specs:
             spec = ControlSpec(**spec_data)
             value = float(control_values.get(spec.key, spec.minimum))
             controls.append(NumericControl(spec, value, rect.copy()))
-            rect.y += row_height + gap
+            rect.y += CONTROL_ROW_HEIGHT + CONTROL_ROW_GAP
         return controls
 
     def _build_toggle_controls(
@@ -694,14 +736,12 @@ class SimulationGUI:
         start_y: int,
     ) -> list[ToggleControl]:
         controls: list[ToggleControl] = []
-        row_height = 34
-        gap = 6
-        rect = pygame.Rect(12, start_y, CONTROL_PANEL_WIDTH - 24, row_height)
+        rect = pygame.Rect(12, start_y, CONTROL_PANEL_WIDTH - 24, CONTROL_ROW_HEIGHT)
         for spec_data in toggle_specs:
             spec = ToggleSpec(**spec_data)
             value = bool(control_values.get(spec.key, False))
             controls.append(ToggleControl(spec, value, rect.copy()))
-            rect.y += row_height + gap
+            rect.y += CONTROL_ROW_HEIGHT + TOGGLE_ROW_GAP
         return controls
 
     def _build_graphs(
@@ -724,6 +764,7 @@ class SimulationGUI:
             "Sheep Population",
             SHEEP_GRAPH_COLOR,
             initial_sheep_count,
+            show_save_button=True,
         )
         self.wolf_graph = PopulationGraph(
             pygame.Rect(
@@ -799,6 +840,15 @@ class SimulationGUI:
         )
         return values
 
+    def set_control_values(self, values: dict[str, float | bool]) -> None:
+        self._deactivate_all_controls(False)
+        for control in self.controls:
+            if control.spec.key in values:
+                control.set_value(float(values[control.spec.key]))
+        for control in self.toggle_controls:
+            if control.spec.key in values:
+                control.set_value(bool(values[control.spec.key]))
+
     def tick(self) -> float:
         return self.clock.tick(self.fps) / 1000.0
 
@@ -861,27 +911,22 @@ class SimulationGUI:
                 elif self.clear_button_rect.collidepoint(pos):
                     self._deactivate_all_controls(True)
                     self._pending_clear_request = True
+                elif self.reset_settings_button_rect.collidepoint(pos):
+                    self._deactivate_all_controls(True)
+                    self.set_control_values(self.default_control_values)
+                elif self.save_settings_button_rect.collidepoint(pos):
+                    self.on_save_settings(self.get_control_values())
+                elif self.import_settings_button_rect.collidepoint(pos):
+                    imported_values = self.on_import_settings()
+                    if imported_values is not None:
+                        self.set_control_values(imported_values)
                 elif (
                     self.show_graphs
                     and self.sheep_graph is not None
                     and self.sheep_graph.is_save_button_clicked(pos)
                 ):
-                    self.on_save_sheep()
+                    self.on_save_data()
                     self.sheep_graph.mark_saved()
-                elif (
-                    self.show_graphs
-                    and self.wolf_graph is not None
-                    and self.wolf_graph.is_save_button_clicked(pos)
-                ):
-                    self.on_save_wolf()
-                    self.wolf_graph.mark_saved()
-                elif (
-                    self.show_graphs
-                    and self.grass_graph is not None
-                    and self.grass_graph.is_save_button_clicked(pos)
-                ):
-                    self.on_save_grass()
-                    self.grass_graph.mark_saved()
                 else:
                     self._handle_control_mouse_down(pos)
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -949,7 +994,7 @@ class SimulationGUI:
         else:
             status_label = "Status: Running"
         status = self.small_font.render(status_label, True, (170, 188, 181))
-        self.screen.blit(status, (16, 84))
+        self.screen.blit(status, (16, self.status_y))
 
         play_label = (
             "Play"
@@ -962,7 +1007,10 @@ class SimulationGUI:
             else BUTTON_PAUSE_COLOR
         )
         self._draw_button(self.play_button_rect, play_label, play_color)
-        self._draw_button(self.clear_button_rect, "Clear", BUTTON_CLEAR_COLOR)
+        self._draw_button(self.clear_button_rect, "Clear Screen", BUTTON_CLEAR_COLOR)
+        self._draw_button(self.reset_settings_button_rect, "Reset Settings", BUTTON_BG_COLOR)
+        self._draw_button(self.save_settings_button_rect, "Save", BUTTON_BG_COLOR)
+        self._draw_button(self.import_settings_button_rect, "Import", BUTTON_BG_COLOR)
 
         # hint = self.tiny_font.render(
         #    "Edit values, press Play. Clear drops the current run.",
