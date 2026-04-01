@@ -100,6 +100,10 @@ def normalize_values(values: np.ndarray) -> np.ndarray:
     return np.zeros_like(values)
 
 
+def fit_constant_to_series(values: np.ndarray) -> float:
+    return float(np.mean(values))
+
+
 def fit_sine_to_normalized_series(
     times: np.ndarray, values: np.ndarray
 ) -> tuple[np.ndarray, float, float, float, float] | None:
@@ -193,6 +197,7 @@ class VisualizerApp:
         self.show_wolves_var = tk.BooleanVar(value=True)
         self.normalized_var = tk.BooleanVar(value=False)
         self.approximate_sine_var = tk.BooleanVar(value=False)
+        self.approximate_constant_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Open a CSV file to visualize it.")
 
         self._build_layout()
@@ -286,6 +291,13 @@ class VisualizerApp:
             command=self.render_plot,
         )
         self.approximate_check.grid(row=0, column=5, padx=(0, 10))
+        self.constant_check = ttk.Checkbutton(
+            species_controls,
+            text="Constant",
+            variable=self.approximate_constant_var,
+            command=self.render_plot,
+        )
+        self.constant_check.grid(row=0, column=6, padx=(0, 10))
         self._update_approximation_toggle_visibility()
 
         status_label = ttk.Label(
@@ -433,6 +445,7 @@ class VisualizerApp:
         self.render_plot()
 
     def _update_approximation_toggle_visibility(self) -> None:
+        self.constant_check.grid()
         if self.normalized_var.get():
             self.approximate_check.grid()
         else:
@@ -509,8 +522,9 @@ class VisualizerApp:
 
         is_normalized = self.normalized_var.get()
         show_sine_fit = is_normalized and self.approximate_sine_var.get()
+        show_constant_fit = self.approximate_constant_var.get()
         max_population = 1.0
-        sine_formulas: list[tuple[str, str, str]] = []
+        fit_formulas: list[tuple[str, str, str]] = []
 
         for name, values, color in visible_series:
             max_population = max(max_population, float(values.max()))
@@ -528,13 +542,19 @@ class VisualizerApp:
                         color,
                         name,
                     )
-                    sine_formulas.append(
+                    fit_formulas.append(
                         (
                             name,
                             color,
                             self._format_sine_formula(omega, phase, y0, amplitude),
                         )
                     )
+            if show_constant_fit:
+                constant_value = fit_constant_to_series(values)
+                self._plot_constant_approximation(times, constant_value, color, name)
+                fit_formulas.append(
+                    (name, color, self._format_constant_formula(constant_value))
+                )
 
         y_limit_top = 1.0 if is_normalized else max_population * 1.08
         self.graph_axis.set_ylim(0.0, y_limit_top)
@@ -561,8 +581,8 @@ class VisualizerApp:
         if title:
             self.graph_axis.set_title(title, color=TEXT_COLOR, pad=12)
 
-        if len(sine_formulas) > 0:
-            self._render_sine_formulas(sine_formulas)
+        if len(fit_formulas) > 0:
+            self._render_sine_formulas(fit_formulas)
 
         self._render_histogram(visible_series)
         crop_info = f"Start T={plot_data.crop_start_time:.2f}s"
@@ -572,6 +592,8 @@ class VisualizerApp:
             crop_info += " | normalized"
         if show_sine_fit:
             crop_info += " | sine fit"
+        if show_constant_fit:
+            crop_info += " | constant fit"
         visible_labels = ", ".join(name for name, _, _ in visible_series)
         self.status_var.set(
             f"{crop_info} | Visible samples: {len(samples)} | Showing: {visible_labels}"
@@ -622,10 +644,27 @@ class VisualizerApp:
             label=f"{label} sine",
         )
 
+    def _plot_constant_approximation(
+        self, times: np.ndarray, constant_value: float, color: str, label: str
+    ) -> None:
+        self.graph_axis.plot(
+            [float(times[0]), float(times[-1])],
+            [constant_value, constant_value],
+            color=color,
+            linewidth=1.5,
+            linestyle="--",
+            dash_capstyle="round",
+            alpha=0.8,
+            label=f"{label} constant",
+        )
+
     def _format_sine_formula(
         self, omega: float, phase: float, y0: float, amplitude: float
     ) -> str:
         return f"y = {y0:.2f} + {amplitude:.2f}*sin({omega:.2f}*t{phase:+.2f})"
+
+    def _format_constant_formula(self, constant_value: float) -> str:
+        return f"y = {constant_value:.2f}"
 
     def _render_sine_formulas(self, formulas: list[tuple[str, str, str]]) -> None:
         y_position = 0.98
