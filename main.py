@@ -431,6 +431,8 @@ def import_simulation_settings(
     settings = _parse_simulation_settings_text(imported_text)
     print("Imported settings from selected file")
     return settings
+
+
 def apply_simulation_settings(settings: dict[str, float | bool]) -> None:
     global NUM_SHEEP
     global NUM_WOLVES

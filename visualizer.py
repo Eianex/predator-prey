@@ -28,9 +28,9 @@ DEFAULT_IMAGE_NAME = "graph.png"
 @dataclass(frozen=True)
 class Sample:
     time_sec: float
-    plants: int
-    sheep: int
-    wolves: int
+    plants: float
+    sheep: float
+    wolves: float
 
 
 @dataclass(frozen=True)
@@ -48,12 +48,18 @@ def read_samples(path: Path) -> list[Sample]:
             samples.append(
                 Sample(
                     time_sec=float(row["Time"]),
-                    plants=int(float(row["Plants"])),
-                    sheep=int(float(row["Sheep"])),
-                    wolves=int(float(row["Wolves"])),
+                    plants=float(row["Plants"]),
+                    sheep=float(row["Sheep"]),
+                    wolves=float(row["Wolves"]),
                 )
             )
     return samples
+
+
+def format_csv_value(value: float) -> str:
+    if abs(value - round(value)) < 1e-9:
+        return str(int(round(value)))
+    return f"{value:.2f}"
 
 
 def write_samples(path: Path, samples: list[Sample]) -> None:
@@ -63,10 +69,10 @@ def write_samples(path: Path, samples: list[Sample]) -> None:
         for sample in samples:
             writer.writerow(
                 [
-                    f"{sample.time_sec:.6f}",
-                    sample.plants,
-                    sample.sheep,
-                    sample.wolves,
+                    f"{sample.time_sec:.2f}",
+                    format_csv_value(sample.plants),
+                    format_csv_value(sample.sheep),
+                    format_csv_value(sample.wolves),
                 ]
             )
 
@@ -85,6 +91,85 @@ def smooth_series(
     padded_values = np.pad(dense_values, (2, 2), mode="edge")
     smoothed_values = np.convolve(padded_values, kernel, mode="same")[2:-2]
     return dense_times, smoothed_values
+
+
+def normalize_values(values: np.ndarray) -> np.ndarray:
+    peak_value = float(values.max())
+    if peak_value > 1e-9:
+        return values / peak_value
+    return np.zeros_like(values)
+
+
+def fit_constant_to_series(values: np.ndarray) -> float:
+    return float(np.mean(values))
+
+
+def fit_sine_to_normalized_series(
+    times: np.ndarray, values: np.ndarray
+) -> tuple[np.ndarray, float, float, float, float] | None:
+    if len(times) < 3:
+        return None
+
+    shifted_times = times - float(times[0])
+    duration = float(shifted_times[-1] - shifted_times[0])
+    if duration <= 0.0:
+        return None
+
+    cycle_min = 1.0
+    cycle_max = max(1.0, min(len(times) / 2.0, 24.0))
+    cycle_candidates = np.linspace(cycle_min, cycle_max, 140)
+    phase_candidates = np.linspace(-np.pi, np.pi, 180, endpoint=False)
+
+    best_error = None
+    best_curve = None
+    best_omega = 0.0
+    best_phase = 0.0
+    best_y0 = 0.0
+    best_amplitude = 0.0
+    mean_values = float(np.mean(values))
+
+    for cycles in cycle_candidates:
+        omega = (2.0 * np.pi * cycles) / duration
+        sine_terms = np.sin(omega * shifted_times[:, None] + phase_candidates[None, :])
+        mean_sine = np.mean(sine_terms, axis=0)
+        centered_sine = sine_terms - mean_sine[None, :]
+        variance = np.mean(centered_sine**2, axis=0)
+        covariance = np.mean(
+            (values[:, None] - mean_values) * centered_sine,
+            axis=0,
+        )
+        amplitude_candidates = np.divide(
+            covariance,
+            variance,
+            out=np.zeros_like(covariance),
+            where=variance > 1e-12,
+        )
+        y0_candidates = np.clip(mean_values - (amplitude_candidates * mean_sine), 0.0, 1.0)
+        amplitude_denominator = np.mean(sine_terms**2, axis=0)
+        amplitude_candidates = np.divide(
+            np.mean((values[:, None] - y0_candidates[None, :]) * sine_terms, axis=0),
+            amplitude_denominator,
+            out=amplitude_candidates,
+            where=amplitude_denominator > 1e-12,
+        )
+        sine_bank = y0_candidates[None, :] + (amplitude_candidates[None, :] * sine_terms)
+        errors = np.mean((sine_bank - values[:, None]) ** 2, axis=0)
+        phase_index = int(np.argmin(errors))
+        error = float(errors[phase_index])
+        if best_error is None or error < best_error:
+            best_error = error
+            best_omega = omega
+            best_phase = float(phase_candidates[phase_index])
+            best_y0 = float(y0_candidates[phase_index])
+            best_amplitude = float(amplitude_candidates[phase_index])
+            best_curve = sine_bank[:, phase_index]
+
+    if best_curve is None:
+        return None
+    if best_amplitude < 0.0:
+        best_amplitude = -best_amplitude
+        best_phase = ((best_phase + np.pi) + np.pi) % (2.0 * np.pi) - np.pi
+    return best_curve, best_omega, best_phase, best_y0, best_amplitude
 
 
 class VisualizerApp:
@@ -110,6 +195,9 @@ class VisualizerApp:
         self.show_plants_var = tk.BooleanVar(value=True)
         self.show_sheep_var = tk.BooleanVar(value=True)
         self.show_wolves_var = tk.BooleanVar(value=True)
+        self.normalized_var = tk.BooleanVar(value=False)
+        self.approximate_sine_var = tk.BooleanVar(value=False)
+        self.approximate_constant_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Open a CSV file to visualize it.")
 
         self._build_layout()
@@ -190,6 +278,27 @@ class VisualizerApp:
             variable=self.show_wolves_var,
             command=self.render_plot,
         ).grid(row=0, column=3, padx=(0, 10))
+        ttk.Checkbutton(
+            species_controls,
+            text="Normalized",
+            variable=self.normalized_var,
+            command=self._on_normalized_toggle,
+        ).grid(row=0, column=4, padx=(0, 10))
+        self.approximate_check = ttk.Checkbutton(
+            species_controls,
+            text="Approximate to sine",
+            variable=self.approximate_sine_var,
+            command=self.render_plot,
+        )
+        self.approximate_check.grid(row=0, column=5, padx=(0, 10))
+        self.constant_check = ttk.Checkbutton(
+            species_controls,
+            text="Constant",
+            variable=self.approximate_constant_var,
+            command=self.render_plot,
+        )
+        self.constant_check.grid(row=0, column=6, padx=(0, 10))
+        self._update_approximation_toggle_visibility()
 
         status_label = ttk.Label(
             self.root,
@@ -239,8 +348,9 @@ class VisualizerApp:
         self.render_plot()
 
     def save_csv_dialog(self) -> None:
-        plot_data = self.current_plot_data()
-        if len(plot_data.samples) == 0:
+        _plot_data, times, series_by_name, _visible_series = self._current_series_data()
+        export_samples = self._build_export_samples(times, series_by_name)
+        if len(export_samples) == 0:
             messagebox.showwarning("Save CSV", "There is no visible data to save.")
             return
 
@@ -254,12 +364,13 @@ class VisualizerApp:
             return
 
         try:
-            write_samples(Path(selected_path), plot_data.samples)
+            write_samples(Path(selected_path), export_samples)
         except Exception as exc:
             messagebox.showerror("Save CSV", f"Failed to save CSV file.\n\n{exc}")
             return
 
-        self.status_var.set(f"Saved visible data to {selected_path}")
+        saved_mode = "normalized" if self.normalized_var.get() else "raw"
+        self.status_var.set(f"Saved {saved_mode} visible data to {selected_path}")
 
     def save_image_dialog(self) -> None:
         plot_data = self.current_plot_data()
@@ -327,28 +438,75 @@ class VisualizerApp:
             ("Wolves", self.show_wolves_var.get(), WOLVES_COLOR),
         ]
 
-    def render_plot(self) -> None:
-        self.graph_axis.clear()
-        self.histogram_axis.clear()
+    def _on_normalized_toggle(self) -> None:
+        if not self.normalized_var.get():
+            self.approximate_sine_var.set(False)
+        self._update_approximation_toggle_visibility()
+        self.render_plot()
 
+    def _update_approximation_toggle_visibility(self) -> None:
+        self.constant_check.grid()
+        if self.normalized_var.get():
+            self.approximate_check.grid()
+        else:
+            self.approximate_check.grid_remove()
+
+    def _current_series_data(
+        self,
+    ) -> tuple[
+        PlotData, np.ndarray, dict[str, np.ndarray], list[tuple[str, np.ndarray, str]]
+    ]:
         plot_data = self.current_plot_data()
         samples = plot_data.samples
         if len(samples) == 0:
-            self._render_empty_state()
-            self.canvas.draw_idle()
-            return
+            return plot_data, np.array([], dtype=float), {}, []
 
         times = np.array([sample.time_sec for sample in samples], dtype=float)
-        series_by_name = {
+        raw_series_by_name = {
             "Plants": np.array([sample.plants for sample in samples], dtype=float),
             "Sheep": np.array([sample.sheep for sample in samples], dtype=float),
             "Wolves": np.array([sample.wolves for sample in samples], dtype=float),
         }
+        if self.normalized_var.get():
+            series_by_name = {
+                name: normalize_values(values)
+                for name, values in raw_series_by_name.items()
+            }
+        else:
+            series_by_name = raw_series_by_name
+
         visible_series = [
             (name, series_by_name[name], color)
             for name, is_visible, color in self._selected_species()
             if is_visible
         ]
+        return plot_data, times, series_by_name, visible_series
+
+    def _build_export_samples(
+        self, times: np.ndarray, series_by_name: dict[str, np.ndarray]
+    ) -> list[Sample]:
+        if len(times) == 0:
+            return []
+        return [
+            Sample(
+                time_sec=float(times[index]),
+                plants=float(series_by_name["Plants"][index]),
+                sheep=float(series_by_name["Sheep"][index]),
+                wolves=float(series_by_name["Wolves"][index]),
+            )
+            for index in range(len(times))
+        ]
+
+    def render_plot(self) -> None:
+        self.graph_axis.clear()
+        self.histogram_axis.clear()
+
+        plot_data, times, _series_by_name, visible_series = self._current_series_data()
+        samples = plot_data.samples
+        if len(samples) == 0:
+            self._render_empty_state()
+            self.canvas.draw_idle()
+            return
         if len(visible_series) == 0:
             self._render_empty_state("No species selected. Check at least one species.")
             self.canvas.draw_idle()
@@ -362,33 +520,80 @@ class VisualizerApp:
         self.graph_axis.spines["left"].set_color("#938a79")
         self.graph_axis.spines["bottom"].set_color("#938a79")
 
+        is_normalized = self.normalized_var.get()
+        show_sine_fit = is_normalized and self.approximate_sine_var.get()
+        show_constant_fit = self.approximate_constant_var.get()
         max_population = 1.0
-        for name, values, color in visible_series:
-            self._plot_smoothed_line(times, values, color, name)
-            max_population = max(max_population, float(values.max()))
+        fit_formulas: list[tuple[str, str, str]] = []
 
-        self.graph_axis.set_ylim(0.0, max_population * 1.08)
+        for name, values, color in visible_series:
+            max_population = max(max_population, float(values.max()))
+            self._plot_smoothed_line(times, values, color, name)
+            if show_sine_fit:
+                sine_fit = fit_sine_to_normalized_series(times, values)
+                if sine_fit is not None:
+                    _approx_values, omega, phase, y0, amplitude = sine_fit
+                    self._plot_sine_approximation(
+                        times,
+                        omega,
+                        phase,
+                        y0,
+                        amplitude,
+                        color,
+                        name,
+                    )
+                    fit_formulas.append(
+                        (
+                            name,
+                            color,
+                            self._format_sine_formula(omega, phase, y0, amplitude),
+                        )
+                    )
+            if show_constant_fit:
+                constant_value = fit_constant_to_series(values)
+                self._plot_constant_approximation(times, constant_value, color, name)
+                fit_formulas.append(
+                    (name, color, self._format_constant_formula(constant_value))
+                )
+
+        y_limit_top = 1.0 if is_normalized else max_population * 1.08
+        self.graph_axis.set_ylim(0.0, y_limit_top)
         self.graph_axis.set_xlim(
             float(times[0]),
             float(times[-1]) if len(times) > 1 else float(times[0]) + 1.0,
         )
-        self.graph_axis.set_ylabel("Population", color=TEXT_COLOR)
+        self.graph_axis.set_ylabel(
+            "Normalized population" if is_normalized else "Population",
+            color=TEXT_COLOR,
+        )
         self.graph_axis.set_xlabel("Time [s]", color=TEXT_COLOR, labelpad=4)
         self.graph_axis.tick_params(colors=TEXT_COLOR)
         self.graph_axis.xaxis.set_major_locator(MaxNLocator(nbins=8, integer=True))
         self.graph_axis.xaxis.set_major_formatter(
             FuncFormatter(lambda value, _pos: str(int(round(value))))
         )
-        self.graph_axis.yaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
+        if is_normalized:
+            self.graph_axis.yaxis.set_major_locator(MaxNLocator(nbins=6))
+        else:
+            self.graph_axis.yaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
 
         title = self.title_var.get().strip()
         if title:
             self.graph_axis.set_title(title, color=TEXT_COLOR, pad=12)
 
+        if len(fit_formulas) > 0:
+            self._render_sine_formulas(fit_formulas)
+
         self._render_histogram(visible_series)
-        crop_info = f"Start T={plot_data.crop_start_time:g}s"
+        crop_info = f"Start T={plot_data.crop_start_time:.2f}s"
         if plot_data.shifted_to_zero:
             crop_info += " | shifted to zero"
+        if self.normalized_var.get():
+            crop_info += " | normalized"
+        if show_sine_fit:
+            crop_info += " | sine fit"
+        if show_constant_fit:
+            crop_info += " | constant fit"
         visible_labels = ", ".join(name for name, _, _ in visible_series)
         self.status_var.set(
             f"{crop_info} | Visible samples: {len(samples)} | Showing: {visible_labels}"
@@ -413,6 +618,74 @@ class VisualizerApp:
             solid_capstyle="round",
             label=label,
         )
+
+    def _plot_sine_approximation(
+        self,
+        times: np.ndarray,
+        omega: float,
+        phase: float,
+        y0: float,
+        amplitude: float,
+        color: str,
+        label: str,
+    ) -> None:
+        dense_count = max(300, len(times) * 12)
+        dense_times = np.linspace(times[0], times[-1], dense_count)
+        shifted_times = dense_times - float(times[0])
+        approximation = y0 + amplitude * np.sin((omega * shifted_times) + phase)
+        self.graph_axis.plot(
+            dense_times,
+            approximation,
+            color=color,
+            linewidth=1.7,
+            linestyle="--",
+            dash_capstyle="round",
+            alpha=0.95,
+            label=f"{label} sine",
+        )
+
+    def _plot_constant_approximation(
+        self, times: np.ndarray, constant_value: float, color: str, label: str
+    ) -> None:
+        self.graph_axis.plot(
+            [float(times[0]), float(times[-1])],
+            [constant_value, constant_value],
+            color=color,
+            linewidth=1.5,
+            linestyle="--",
+            dash_capstyle="round",
+            alpha=0.8,
+            label=f"{label} constant",
+        )
+
+    def _format_sine_formula(
+        self, omega: float, phase: float, y0: float, amplitude: float
+    ) -> str:
+        return f"y = {y0:.2f} + {amplitude:.2f}*sin({omega:.2f}*t{phase:+.2f})"
+
+    def _format_constant_formula(self, constant_value: float) -> str:
+        return f"y = {constant_value:.2f}"
+
+    def _render_sine_formulas(self, formulas: list[tuple[str, str, str]]) -> None:
+        y_position = 0.98
+        for name, color, formula in formulas:
+            self.graph_axis.text(
+                0.016,
+                y_position,
+                f"{name}: {formula}",
+                transform=self.graph_axis.transAxes,
+                ha="left",
+                va="top",
+                color=color,
+                fontsize=8.5,
+                bbox={
+                    "facecolor": BACKGROUND_COLOR,
+                    "edgecolor": "none",
+                    "alpha": 0.72,
+                    "pad": 1.8,
+                },
+            )
+            y_position -= 0.06
 
     def _render_histogram(
         self, visible_series: list[tuple[str, np.ndarray, str]]
